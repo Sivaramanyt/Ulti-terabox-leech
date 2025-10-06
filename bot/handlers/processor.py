@@ -1,5 +1,5 @@
 """
-Main file processing logic - ORIGINAL WORKING + TINY SAFE OPTIMIZATION
+Main file processing logic - EXACT ORIGINAL WORKING VERSION
 """
 
 import os
@@ -31,7 +31,7 @@ def speed_string_to_bytes(size_str):
             return 0
 
 def extract_terabox_info(url):
-    """Extract file info using wdzone-terabox-api - EXACTLY SAME AS WORKING"""
+    """Extract file info using wdzone-terabox-api"""
     try:
         print(f"🔍 Processing URL: {url}")
         LOGGER.info(f"Processing URL: {url}")
@@ -94,7 +94,7 @@ def extract_terabox_info(url):
         raise Exception(f"Failed to process Terabox link: {str(e)}")
 
 def format_size(bytes_size):
-    """Format file size - EXACTLY SAME AS WORKING"""
+    """Format file size"""
     for unit in ['B', 'KB', 'MB', 'GB']:
         if bytes_size < 1024:
             return f"{bytes_size:.1f} {unit}"
@@ -102,14 +102,14 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL - BACK TO ORIGINAL WORKING VERSION"""
+    """Process Terabox URL - EXACT ORIGINAL WORKING VERSION"""
     print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
     status_msg = await update.message.reply_text("🔍 **Processing Terabox URL...**", parse_mode='Markdown')
     
     try:
-        # Step 1: Extract file info (EXACTLY SAME AS WORKING)
+        # Step 1: Extract file info
         print(f"📋 Step 1: Using wdzone-terabox-api...")
         await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
         
@@ -125,7 +125,7 @@ async def process_terabox_url(update: Update, url: str):
             await status_msg.edit_text("❌ **No download URL found**", parse_mode='Markdown')
             return
         
-        # Step 2: Size check (EXACTLY SAME AS WORKING)
+        # Step 2: Size check
         if file_size > 2 * 1024 * 1024 * 1024:  # 2GB limit
             await status_msg.edit_text(
                 f"❌ **File too large!**\n\n📊 **Size:** {format_size(file_size)}\n\n**Max allowed:** 2GB for free tier", 
@@ -138,12 +138,11 @@ async def process_terabox_url(update: Update, url: str):
             parse_mode='Markdown'
         )
         
-        # Step 3: BACK TO ORIGINAL + TINY SAFE OPTIMIZATION
+        # Step 3: Download file (EXACTLY ORIGINAL SETTINGS)
         print(f"⬇️ Step 3: Downloading file...")
         file_path = Path(DOWNLOAD_DIR) / filename
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         
-        # ORIGINAL CONNECTION SETTINGS (NO AGGRESSIVE OPTIMIZATIONS)
         async with aiohttp.ClientSession() as session:
             async with session.get(download_url) as response:
                 if response.status != 200:
@@ -159,13 +158,13 @@ async def process_terabox_url(update: Update, url: str):
                 print(f"📥 Downloading {filename}, size: {total_size}")
                 
                 async with aiofiles.open(file_path, 'wb') as f:
-                    # TINY SAFE OPTIMIZATION: 32KB chunks (just 4x bigger than original)
-                    async for chunk in response.content.iter_chunked(32 * 1024):  # 32KB chunks
+                    # EXACTLY ORIGINAL: 8KB chunks (same as working version)
+                    async for chunk in response.content.iter_chunked(8192):  # 8KB chunks
                         await f.write(chunk)
                         downloaded += len(chunk)
                         
-                        # Update progress every 2MB (same as working version)
-                        if downloaded % (2 * 1024 * 1024) == 0:
+                        # Update progress every 1MB (exactly original)
+                        if downloaded % (1024 * 1024) == 0:
                             progress = (downloaded / total_size) * 100 if total_size > 0 else 0
                             try:
                                 await status_msg.edit_text(
@@ -185,7 +184,7 @@ async def process_terabox_url(update: Update, url: str):
             # Create caption without markdown
             caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🔗 Source: wdzone-terabox-api"
             
-            # Detect file type and upload (NO PARSE_MODE - SAME AS WORKING)
+            # Detect file type and upload (NO PARSE_MODE)
             with open(file_path, 'rb') as file:
                 if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv')):
                     await update.message.reply_video(
@@ -211,14 +210,14 @@ async def process_terabox_url(update: Update, url: str):
         
         print(f"✅ Step 4 complete: File uploaded successfully")
         
-        # Step 5: Cleanup (EXACTLY SAME AS WORKING VERSION)
+        # Step 5: Cleanup
         try:
             file_path.unlink(missing_ok=True)
             print(f"🧹 Cleanup: File deleted")
         except:
             pass
         
-        # Delete status message (EXACTLY SAME AS WORKING VERSION)
+        # Delete status message
         try:
             await status_msg.delete()
         except:
@@ -232,4 +231,4 @@ async def process_terabox_url(update: Update, url: str):
         print(f"❌ Process error: {error_msg}")
         LOGGER.error(f"Process error: {error_msg}")
         await status_msg.edit_text(f"❌ **Error:** {error_msg}", parse_mode='Markdown')
-        
+    
