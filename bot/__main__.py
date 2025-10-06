@@ -1,6 +1,6 @@
 """
-Ultra Simple Terabox Leech Bot - FINAL VERSION
-Fixed all issues: FLOOD_WAIT, imports, shutdown errors
+Ultra Simple Terabox Leech Bot - WITH HEALTH CHECK
+Fixed Koyeb health check issue
 """
 
 from pyrogram import Client, idle, filters
@@ -11,16 +11,33 @@ import aiohttp
 import aiofiles
 from pathlib import Path
 import os
+from aiohttp import web
 
-# Create bot client with unique session name to avoid conflicts
+# Create bot client
 app = Client(
-    f"terabox_bot_{BOT_TOKEN.split(':')[0]}",  # Unique session name
+    f"terabox_bot_{BOT_TOKEN.split(':')[0]}",
     api_id=TELEGRAM_API,
     api_hash=TELEGRAM_HASH,
     bot_token=BOT_TOKEN
 )
 
-# Simple terabox function (inline to avoid import issues)
+# Health check server for Koyeb
+async def health_check(request):
+    return web.Response(text="Bot is running!", status=200)
+
+async def start_health_server():
+    """Start health check server for Koyeb"""
+    app_web = web.Application()
+    app_web.router.add_get('/', health_check)
+    app_web.router.add_get('/health', health_check)
+    
+    runner = web.AppRunner(app_web)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8000)
+    await site.start()
+    LOGGER.info("Health check server started on port 8000")
+
+# Your existing Terabox function
 def extract_terabox_info(url):
     """Extract file info from Terabox URL"""
     import requests
@@ -52,7 +69,7 @@ def extract_terabox_info(url):
         if not files:
             raise Exception("No files found")
         
-        file_info = files[0]  # Take first file only
+        file_info = files[0]
         return {
             'filename': file_info.get('server_filename', 'Unknown'),
             'size': file_info.get('size', 0),
@@ -63,6 +80,7 @@ def extract_terabox_info(url):
     except Exception as e:
         raise Exception(f"Terabox extraction failed: {str(e)}")
 
+# Your existing handlers (keep all of them the same)
 @app.on_message(filters.command("start"))
 async def start_handler(client, message: Message):
     """Start command"""
@@ -152,12 +170,11 @@ async def download_and_upload(message: Message, url: str):
                                     f"⬇️ **Downloading:** {progress:.1f}%"
                                 )
                             except:
-                                pass  # Ignore edit rate limits
+                                pass
         
         # Upload to Telegram
         await status.edit_text(f"📤 **Uploading to Telegram...**")
         
-        # Detect file type and upload accordingly
         try:
             if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv')):
                 await message.reply_video(
@@ -175,13 +192,12 @@ async def download_and_upload(message: Message, url: str):
                     caption=f"📁 **{filename}**"
                 )
             
-            # Success - delete status message
             await status.delete()
             
         except Exception as upload_error:
             await status.edit_text(f"❌ **Upload failed:** {str(upload_error)}")
         
-        # Cleanup downloaded file
+        # Cleanup
         try:
             file_path.unlink(missing_ok=True)
         except:
@@ -200,12 +216,18 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 async def main():
-    """Main function - FIXED shutdown handling"""
+    """Main function - WITH HEALTH CHECK"""
     try:
+        # Start health check server first
+        await start_health_server()
+        
+        # Start bot
         await app.start()
         me = await app.get_me()
         LOGGER.info(f"✅ Bot @{me.username} started successfully!")
-        print(f"🚀 Bot @{me.username} is running! Send /start to test.")
+        print(f"🚀 Bot @{me.username} is running!")
+        print(f"🌐 Health check server running on port 8000")
+        
         await idle()
     except Exception as e:
         LOGGER.error(f"❌ Bot startup error: {e}")
@@ -214,7 +236,7 @@ async def main():
             if app.is_connected:
                 await app.stop()
         except:
-            pass  # Ignore shutdown errors
+            pass
 
 if __name__ == "__main__":
     asyncio.run(main())
