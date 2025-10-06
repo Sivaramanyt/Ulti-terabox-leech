@@ -6,7 +6,7 @@ from pyrogram.types import Message
 from pathlib import Path
 from config import LEECH_SPLIT_SIZE, AS_DOCUMENT, LOGGER
 from ...telegram_helper.message_utils import editMessage
-from ...core.tg_client import TgClient
+from ....core.tg_client import TgClient
 
 class TelegramUploader:
     def __init__(self):
@@ -89,3 +89,4 @@ class TelegramUploader:
                           '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
         
         return Path(filename).suffix.lower() in media_extensions
+            
