@@ -1,11 +1,11 @@
 """
-Ultra Simple Terabox Leech Bot - WITH HEALTH CHECK
-Fixed Koyeb health check issue
+Ultra Simple Terabox Leech Bot - DEBUG VERSION
+Added debugging to see why commands aren't working
 """
 
 from pyrogram import Client, idle, filters
 from pyrogram.types import Message
-from config import BOT_TOKEN, TELEGRAM_API, TELEGRAM_HASH, LOGGER, DOWNLOAD_DIR
+from config import BOT_TOKEN, TELEGRAM_API, TELEGRAM_HASH, LOGGER, DOWNLOAD_DIR, OWNER_ID
 import asyncio
 import aiohttp
 import aiofiles
@@ -21,7 +21,7 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Health check server for Koyeb
+# Health check server
 async def health_check(request):
     return web.Response(text="Bot is running!", status=200)
 
@@ -37,14 +37,68 @@ async def start_health_server():
     await site.start()
     LOGGER.info("Health check server started on port 8000")
 
-# Your existing Terabox function
+# DEBUG: Log all messages
+@app.on_message()
+async def debug_all_messages(client, message: Message):
+    """Debug: Log all incoming messages"""
+    LOGGER.info(f"📨 Received message from {message.from_user.id}: {message.text}")
+    print(f"📨 DEBUG: User {message.from_user.id} sent: {message.text}")
+    print(f"📨 DEBUG: OWNER_ID is: {OWNER_ID}")
+    print(f"📨 DEBUG: User ID matches owner: {message.from_user.id == OWNER_ID}")
+
+# Start command handler
+@app.on_message(filters.command("start"))
+async def start_handler(client, message: Message):
+    """Start command - UNRESTRICTED"""
+    print(f"🚀 DEBUG: Start command received from {message.from_user.id}")
+    LOGGER.info(f"Start command from user {message.from_user.id}")
+    
+    try:
+        await message.reply_text("""
+🚀 **Ultra Simple Terabox Leech Bot**
+
+**Usage:**
+• `/leech <terabox_url>`
+• Just send Terabox URL directly
+
+**Features:**
+• ⚡ Lightning fast
+• 🎯 Terabox only  
+• 💾 Memory optimized
+• 🆓 Free tier friendly
+
+**Debug Info:**
+• Your ID: `{}`
+• Owner ID: `{}`
+• Bot Status: ✅ WORKING
+
+Send me a Terabox link to get started! 📂
+        """.format(message.from_user.id, OWNER_ID))
+        
+        print(f"✅ DEBUG: Start reply sent successfully")
+        
+    except Exception as e:
+        print(f"❌ DEBUG: Start reply failed: {e}")
+        LOGGER.error(f"Start reply error: {e}")
+
+# Test command
+@app.on_message(filters.command("test"))
+async def test_handler(client, message: Message):
+    """Test command"""
+    await message.reply_text("🧪 **Test successful!** Bot is responding to commands.")
+
+# Echo command for debugging
+@app.on_message(filters.text & ~filters.command(["start", "test", "leech"]))
+async def echo_handler(client, message: Message):
+    """Echo messages for debugging"""
+    await message.reply_text(f"📢 **Echo:** {message.text}\n\n🆔 **Your ID:** `{message.from_user.id}`\n🤖 **I'm working!**")
+
+# Simple Terabox function (simplified for debugging)
 def extract_terabox_info(url):
     """Extract file info from Terabox URL"""
     import requests
-    from urllib.parse import urlparse, parse_qs
     
     try:
-        # Extract surl from URL
         if 'surl=' in url:
             surl = url.split('surl=')[-1].split('&')[0]
         elif '/s/' in url:
@@ -52,11 +106,8 @@ def extract_terabox_info(url):
         else:
             raise Exception("Invalid Terabox URL")
         
-        # API request
         api_url = "https://www.terabox.com/api/shorturlinfo"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         params = {'shorturl': surl, 'root': '1'}
         
         response = requests.get(api_url, params=params, headers=headers, timeout=30)
@@ -80,132 +131,21 @@ def extract_terabox_info(url):
     except Exception as e:
         raise Exception(f"Terabox extraction failed: {str(e)}")
 
-# Your existing handlers (keep all of them the same)
-@app.on_message(filters.command("start"))
-async def start_handler(client, message: Message):
-    """Start command"""
-    await message.reply_text("""
-🚀 **Ultra Simple Terabox Leech Bot**
-
-**Usage:**
-• `/leech <terabox_url>`
-• Just send Terabox URL directly
-
-**Features:**
-• ⚡ Lightning fast
-• 🎯 Terabox only  
-• 💾 Memory optimized
-• 🆓 Free tier friendly (512MB RAM)
-
-Send me a Terabox link to get started! 📂
-    """)
-
 @app.on_message(filters.command("leech"))
 async def leech_command(client, message: Message):
     """Leech command handler"""
+    print(f"📥 DEBUG: Leech command from {message.from_user.id}")
+    
     if len(message.command) < 2:
         await message.reply_text("❌ **Usage:** `/leech https://terabox.com/s/xxxxx`")
         return
     
-    url = message.command[1]
-    await download_and_upload(message, url)
+    await message.reply_text("🔍 **Processing Terabox URL...**\n\n⚠️ **Note:** This is a debug version. Full download functionality will be restored once commands are working.")
 
-@app.on_message(filters.regex(r"terabox\.com") & filters.text & ~filters.command(["start", "leech"]))
+@app.on_message(filters.regex(r"terabox\.com") & filters.text & ~filters.command(["start", "leech", "test"]))
 async def auto_leech(client, message: Message):
     """Auto-detect Terabox URLs"""
-    await download_and_upload(message, message.text.strip())
-
-async def download_and_upload(message: Message, url: str):
-    """Main download and upload function"""
-    status = await message.reply_text("🔍 **Processing Terabox URL...**")
-    
-    try:
-        # Get file info from Terabox
-        await status.edit_text("📋 **Extracting file info...**")
-        file_info = extract_terabox_info(url)
-        
-        filename = file_info['filename']
-        file_size = file_info['size']
-        download_url = file_info['download_url']
-        
-        if not download_url:
-            await status.edit_text("❌ **No download URL found**")
-            return
-        
-        # Size check (2GB limit for free tier)
-        if file_size > 2 * 1024 * 1024 * 1024:
-            await status.edit_text("❌ **File too large!** Max: 2GB for free tier")
-            return
-        
-        await status.edit_text(
-            f"📁 **{filename}**\n"
-            f"📊 **{format_size(file_size)}**\n"
-            f"⬇️ **Downloading...**"
-        )
-        
-        # Download file
-        file_path = Path(DOWNLOAD_DIR) / filename
-        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(download_url) as response:
-                if response.status != 200:
-                    await status.edit_text(f"❌ **Download failed: HTTP {response.status}**")
-                    return
-                
-                total_size = int(response.headers.get('content-length', 0))
-                downloaded = 0
-                
-                async with aiofiles.open(file_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(8192):
-                        await f.write(chunk)
-                        downloaded += len(chunk)
-                        
-                        # Update progress every 1MB
-                        if downloaded % (1024 * 1024) == 0 and total_size > 0:
-                            progress = (downloaded / total_size) * 100
-                            try:
-                                await status.edit_text(
-                                    f"📁 **{filename}**\n"
-                                    f"⬇️ **Downloading:** {progress:.1f}%"
-                                )
-                            except:
-                                pass
-        
-        # Upload to Telegram
-        await status.edit_text(f"📤 **Uploading to Telegram...**")
-        
-        try:
-            if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv')):
-                await message.reply_video(
-                    video=str(file_path),
-                    caption=f"🎥 **{filename}**"
-                )
-            elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
-                await message.reply_photo(
-                    photo=str(file_path),
-                    caption=f"🖼️ **{filename}**"
-                )
-            else:
-                await message.reply_document(
-                    document=str(file_path),
-                    caption=f"📁 **{filename}**"
-                )
-            
-            await status.delete()
-            
-        except Exception as upload_error:
-            await status.edit_text(f"❌ **Upload failed:** {str(upload_error)}")
-        
-        # Cleanup
-        try:
-            file_path.unlink(missing_ok=True)
-        except:
-            pass
-            
-    except Exception as e:
-        LOGGER.error(f"Process error: {e}")
-        await status.edit_text(f"❌ **Error:** {str(e)}")
+    await message.reply_text("🔗 **Terabox URL detected!**\n\n⚠️ **Note:** This is a debug version. Use `/leech <url>` command instead.")
 
 def format_size(bytes_size):
     """Format file size"""
@@ -216,21 +156,23 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 async def main():
-    """Main function - WITH HEALTH CHECK"""
+    """Main function - DEBUG VERSION"""
     try:
-        # Start health check server first
         await start_health_server()
-        
-        # Start bot
         await app.start()
+        
         me = await app.get_me()
         LOGGER.info(f"✅ Bot @{me.username} started successfully!")
         print(f"🚀 Bot @{me.username} is running!")
         print(f"🌐 Health check server running on port 8000")
+        print(f"🔍 DEBUG MODE: All messages will be logged")
+        print(f"🆔 OWNER_ID: {OWNER_ID}")
+        print(f"🤖 Bot ID: {me.id}")
         
         await idle()
     except Exception as e:
         LOGGER.error(f"❌ Bot startup error: {e}")
+        print(f"❌ ERROR: {e}")
     finally:
         try:
             if app.is_connected:
@@ -240,4 +182,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+    
