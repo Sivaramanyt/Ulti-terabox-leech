@@ -1,13 +1,14 @@
 """
-Health check server for Koyeb compatibility - Enhanced Edition
-Starts both health server and bot together
+Health check server for Koyeb compatibility - Fixed Import
 """
 
 from aiohttp import web
-import aiohttp
-import asyncio
+import logging
 import os
-from config import LOGGER
+
+# Create logger directly instead of importing from config
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 async def health_check(request):
     """Health check endpoint"""
@@ -17,7 +18,7 @@ async def status_check(request):
     """Status endpoint with bot information"""
     try:
         # Try to check if enhanced mode is available
-        mode = "Enhanced Multi-Connection Mode"
+        mode = "Standard Reliable Mode"
         try:
             import bot.handlers.enhanced_processor
             mode = "Enhanced Multi-Connection Mode"
@@ -26,7 +27,7 @@ async def status_check(request):
         
         status_info = {
             "status": "running",
-            "mode": mode,
+            "mode": mode, 
             "bot": "Ultra Terabox Leech Bot",
             "version": "2.0 Enhanced Edition"
         }
@@ -38,7 +39,7 @@ async def start_health_server():
     """Start health check server for Koyeb"""
     app_web = web.Application()
     app_web.router.add_get('/', health_check)
-    app_web.router.add_get('/health', health_check)
+    app_web.router.add_get('/health', health_check) 
     app_web.router.add_get('/status', status_check)
     
     runner = web.AppRunner(app_web)
@@ -49,32 +50,16 @@ async def start_health_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     
-    LOGGER.info(f"🌐 Health check server started on port {port}")
-
-async def start_bot():
-    """Start the main bot"""
-    try:
-        # Import and run bot
-        LOGGER.info("🤖 Starting main bot...")
-        from bot import main
-        await main()
-    except Exception as e:
-        LOGGER.error(f"❌ Bot startup failed: {e}")
-
-async def run_both():
-    """Run both health server and bot"""
-    # Start health server
-    await start_health_server()
-    
-    # Start bot
-    await start_bot()
+    LOGGER.info(f"Health check server started on port {port}")
 
 if __name__ == "__main__":
+    import asyncio
     try:
-        LOGGER.info("🚀 Starting Enhanced Terabox Bot with Health Server...")
-        asyncio.run(run_both())
-    except KeyboardInterrupt:
-        LOGGER.info("🛑 Shutting down...")
-    except Exception as e:
-        LOGGER.error(f"❌ Startup failed: {e}")
+        LOGGER.info("🏥 Starting health check server...")
+        asyncio.run(start_health_server())
         
+        # Keep server running
+        asyncio.get_event_loop().run_forever()
+    except KeyboardInterrupt:
+        LOGGER.info("🛑 Health server stopped")
+    
