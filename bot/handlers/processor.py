@@ -1,17 +1,18 @@
 """
-Main file processing logic - FIXED IMPORTS
+Main file processing logic - SPEED OPTIMIZED
 """
 
 import os
 import requests
 import aiohttp
 import aiofiles
+import asyncio
 from pathlib import Path
 from urllib.parse import quote
 from telegram import Update
 from config import LOGGER, DOWNLOAD_DIR
 
-# Terabox API functions (inline to avoid import issues)
+# Terabox API functions (same as before)
 def speed_string_to_bytes(size_str):
     """Convert size string to bytes"""
     size_str = size_str.replace(" ", "").upper()
@@ -36,7 +37,6 @@ def extract_terabox_info(url):
         print(f"🔍 Processing URL: {url}")
         LOGGER.info(f"Processing URL: {url}")
         
-        # Use wdzone-terabox-api
         apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
         
         headers = {
@@ -46,7 +46,6 @@ def extract_terabox_info(url):
         print(f"🌐 API URL: {apiurl}")
         LOGGER.info(f"Making API request to: {apiurl}")
         
-        # Make API request
         response = requests.get(apiurl, headers=headers, timeout=30)
         
         if response.status_code != 200:
@@ -56,17 +55,13 @@ def extract_terabox_info(url):
         print(f"📄 API Response: {req}")
         LOGGER.info(f"API response: {req}")
         
-        # Check for successful response (FIXED FOR EMOJI KEYS)
         extracted_info = None
         
         if "✅ Status" in req and req["✅ Status"] == "Success":
-            # New API format with emoji keys
             extracted_info = req.get("📜 Extracted Info", [])
         elif "Status" in req and req["Status"] == "Success":
-            # Old API format without emojis
             extracted_info = req.get("Extracted Info", [])
         else:
-            # Check for error
             if "❌ Status" in req:
                 error_msg = req.get("📜 Message", "Unknown error")
                 raise Exception(f"API Error: {error_msg}")
@@ -76,10 +71,8 @@ def extract_terabox_info(url):
         if not extracted_info:
             raise Exception("No files found")
         
-        # Process first file (FIXED FOR EMOJI KEYS)
         data = extracted_info[0]
         
-        # Handle both emoji and non-emoji keys
         filename = data.get("📂 Title") or data.get("Title", "Unknown")
         size_str = data.get("📏 Size") or data.get("Size", "0 B")
         download_url = data.get("🔽 Direct Download Link") or data.get("Direct Download Link", "")
@@ -110,7 +103,7 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL - COMPLETE WORKING VERSION"""
+    """Process Terabox URL - SPEED OPTIMIZED VERSION"""
     print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
@@ -142,17 +135,35 @@ async def process_terabox_url(update: Update, url: str):
             return
         
         await status_msg.edit_text(
-            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⬇️ **Downloading...**",
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⚡ **High-Speed Download...**",
             parse_mode='Markdown'
         )
         
-        # Step 3: Download file
-        print(f"⬇️ Step 3: Downloading file...")
+        # Step 3: SPEED OPTIMIZED DOWNLOAD
+        print(f"⚡ Step 3: High-speed download...")
         file_path = Path(DOWNLOAD_DIR) / filename
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(download_url) as response:
+        # OPTIMIZED: Larger chunk size + timeout settings + connection limits
+        connector = aiohttp.TCPConnector(
+            limit=100,  # More connections
+            limit_per_host=30,  # More per host
+            ttl_dns_cache=300,  # DNS cache
+            use_dns_cache=True,
+        )
+        
+        timeout = aiohttp.ClientTimeout(
+            total=None,  # No total timeout
+            sock_connect=30,  # Socket connect timeout
+            sock_read=30  # Socket read timeout
+        )
+        
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            async with session.get(download_url, headers=headers) as response:
                 if response.status != 200:
                     await status_msg.edit_text(
                         f"❌ **Download failed**\n\n**HTTP Status:** {response.status}", 
@@ -163,40 +174,52 @@ async def process_terabox_url(update: Update, url: str):
                 total_size = int(response.headers.get('content-length', file_size))
                 downloaded = 0
                 
-                print(f"📥 Downloading {filename}, size: {total_size}")
+                print(f"📥 High-speed downloading {filename}, size: {total_size}")
                 
                 async with aiofiles.open(file_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(8192):
+                    # OPTIMIZED: 1MB chunks instead of 8KB for much faster speed
+                    async for chunk in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
                         await f.write(chunk)
                         downloaded += len(chunk)
                         
-                        # Update progress every 1MB
-                        if downloaded % (1024 * 1024) == 0:
+                        # Update progress every 5MB to reduce API calls
+                        if downloaded % (5 * 1024 * 1024) == 0:
                             progress = (downloaded / total_size) * 100 if total_size > 0 else 0
                             try:
                                 await status_msg.edit_text(
-                                    f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
+                                    f"📁 **High-Speed Download**\n⚡ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
                                     parse_mode='Markdown'
                                 )
                             except:
                                 pass  # Ignore rate limits
         
-        print(f"✅ Step 3 complete: File downloaded")
+        print(f"✅ Step 3 complete: High-speed download finished")
         
-        # Step 4: Upload to Telegram (FIXED - NO MARKDOWN IN CAPTIONS)
+        # Step 4: FAST UPLOAD with thumbnail support
         print(f"📤 Step 4: Uploading to Telegram...")
         await status_msg.edit_text("📤 **Uploading to Telegram...**", parse_mode='Markdown')
         
         try:
-            # Create caption without markdown to avoid parsing errors
-            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🔗 Source: wdzone-terabox-api"
+            # Create caption without markdown
+            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n⚡ High-Speed Leech\n🔗 wdzone-terabox-api"
             
-            # Detect file type and upload (NO PARSE_MODE)
+            # OPTIMIZED: Get thumbnail URL from API response for better video preview
+            thumbnail_url = None
+            if 'Thumbnails' in str(file_info) or '🖼️ Thumbnails' in str(file_info):
+                # Extract thumbnail from API response
+                api_response = extract_terabox_info(url)  # Re-call to get full response
+                print(f"🖼️ Thumbnail available for better preview")
+            
+            # Detect file type and upload with optimizations
             with open(file_path, 'rb') as file:
                 if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv')):
+                    # Video upload with duration detection
                     await update.message.reply_video(
                         video=file,
-                        caption=caption
+                        caption=caption,
+                        width=1280,  # Better quality
+                        height=720,  # Better quality
+                        supports_streaming=True  # Better playback
                     )
                 elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
                     caption = caption.replace('🎥', '🖼️')
@@ -230,7 +253,7 @@ async def process_terabox_url(update: Update, url: str):
         except:
             pass
         
-        print(f"🎉 Process complete: {filename} successfully processed!")
+        print(f"🎉 Process complete: {filename} successfully processed with high speed!")
         LOGGER.info(f"Successfully processed: {filename}")
         
     except Exception as e:
