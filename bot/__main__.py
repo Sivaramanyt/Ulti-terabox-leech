@@ -1,6 +1,6 @@
 """
 Ultra Terabox Bot - FINAL WORKING VERSION
-Fixed all asyncio event loop issues + REAL Terabox Processing
+Fixed all import issues + REAL Terabox Processing
 """
 
 import logging
@@ -28,29 +28,26 @@ if not BOT_TOKEN:
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 
-# Try to import verification system
+# Try to import verification system (optional)
+VERIFICATION_AVAILABLE = False
 try:
     from bot.modules.token_verification import (
-        token_verification_system,
         check_user_verification_required,
-        handle_verification_token_input,
         handle_verification_callbacks
     )
-    from bot.modules.auto_forward_system import initialize_auto_forward_system
     VERIFICATION_AVAILABLE = True
     LOGGER.info("✅ Verification modules imported successfully")
 except ImportError as e:
     LOGGER.warning(f"⚠️ Verification modules not available: {e}")
-    VERIFICATION_AVAILABLE = False
 
 # Import your original working message handler
+TERABOX_HANDLER_AVAILABLE = False
 try:
     import bot.handlers.messages as messages
     TERABOX_HANDLER_AVAILABLE = True
     LOGGER.info("✅ Original Terabox handler imported successfully")
 except ImportError as e:
     LOGGER.error(f"❌ Failed to import Terabox handler: {e}")
-    TERABOX_HANDLER_AVAILABLE = False
 
 def is_terabox_url(url):
     """Check if URL is a Terabox URL"""
@@ -96,29 +93,32 @@ async def handle_message(update: Update, context):
             LOGGER.info(f"📊 User {user_id} download #1")
             
             if VERIFICATION_AVAILABLE:
-                # Check if user needs verification
-                verification_required = await check_user_verification_required(user_id)
-                
-                if verification_required:
-                    LOGGER.info(f"🔐 User {user_id} needs verification")
+                try:
+                    # Check if user needs verification
+                    verification_required = await check_user_verification_required(user_id)
                     
-                    # Send verification message
-                    verification_button = InlineKeyboardButton(
-                        "🔐 Click Here to Verify", 
-                        callback_data=f"start_verification_{user_id}"
-                    )
-                    keyboard = InlineKeyboardMarkup([[verification_button]])
-                    
-                    await update.message.reply_text(
-                        "🔐 **Verification Required**\n\n"
-                        "You need to complete verification to access this feature.\n"
-                        "Click the button below to start verification process.",
-                        reply_markup=keyboard,
-                        parse_mode='Markdown'
-                    )
-                    return
-                else:
-                    LOGGER.info(f"✅ User {user_id} is verified, processing...")
+                    if verification_required:
+                        LOGGER.info(f"🔐 User {user_id} needs verification")
+                        
+                        # Send verification message
+                        verification_button = InlineKeyboardButton(
+                            "🔐 Click Here to Verify", 
+                            callback_data=f"start_verification_{user_id}"
+                        )
+                        keyboard = InlineKeyboardMarkup([[verification_button]])
+                        
+                        await update.message.reply_text(
+                            "🔐 **Verification Required**\n\n"
+                            "You need to complete verification to access this feature.\n"
+                            "Click the button below to start verification process.",
+                            reply_markup=keyboard,
+                            parse_mode='Markdown'
+                        )
+                        return
+                    else:
+                        LOGGER.info(f"✅ User {user_id} is verified, processing...")
+                except Exception as e:
+                    LOGGER.warning(f"⚠️ Verification check failed: {e}, proceeding without verification")
             
             # Process the Terabox URL
             await process_terabox_url(update, message_text)
@@ -171,25 +171,23 @@ async def help_command(update: Update, context):
         parse_mode='Markdown'
     )
 
+async def handle_verification_token_input(update: Update, context):
+    """Handle verification token input (fallback if verification module unavailable)"""
+    if VERIFICATION_AVAILABLE:
+        try:
+            from bot.modules.token_verification import handle_verification_token_input as handle_token
+            await handle_token(update, context)
+        except Exception as e:
+            LOGGER.error(f"❌ Verification token handling failed: {e}")
+            await handle_message(update, context)
+    else:
+        # If no verification system, just process as normal message
+        await handle_message(update, context)
+
 async def main():
     """Main function"""
     try:
-        # Start health check server
-        try:
-            import bot.utils.health_server as health
-            await health.start_health_server()
-        except ImportError:
-            LOGGER.warning("⚠️ Health server not available")
-        
         LOGGER.info("🚀 Starting Ultra Terabox Bot...")
-        
-        # Initialize auto-forward system if available
-        if VERIFICATION_AVAILABLE:
-            try:
-                await initialize_auto_forward_system()
-                LOGGER.info("✅ Auto-forward initialized")
-            except Exception as e:
-                LOGGER.warning(f"⚠️ Auto-forward initialization failed: {e}")
         
         # Create application
         application = Application.builder().token(BOT_TOKEN).build()
@@ -202,16 +200,12 @@ async def main():
         if VERIFICATION_AVAILABLE:
             try:
                 application.add_handler(CallbackQueryHandler(handle_verification_callbacks))
-                application.add_handler(MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, 
-                    handle_verification_token_input
-                ))
-                LOGGER.info("✅ Verification handlers registered")
+                LOGGER.info("✅ Verification callback handler registered")
             except Exception as e:
                 LOGGER.error(f"❌ Failed to register verification handlers: {e}")
         
-        # Add main message handler
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        # Add main message handler - this handles both verification token input and terabox processing
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_verification_token_input))
         
         LOGGER.info("✅ All handlers registered")
         LOGGER.info(f"🤖 Bot Token: {BOT_TOKEN[:20]}...")
@@ -235,4 +229,4 @@ if __name__ == '__main__':
     except Exception as e:
         LOGGER.error(f"❌ Fatal error: {e}")
         sys.exit(1)
-            
+    
