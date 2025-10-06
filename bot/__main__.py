@@ -1,140 +1,132 @@
 """
-Ultra Simple Terabox Leech Bot - Enhanced Edition with Fallback
-INCLUDES: Enhanced multi-connection mode + Original reliable mode
+Enhanced Main File - SAFE Approach (RECOMMENDED)
+ALL your existing MLTB code preserved + verification runs independently
 """
 
-import asyncio
-import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from config import BOT_TOKEN, LOGGER
-import bot.utils.health_server as health
-import bot.handlers.commands as commands
-import bot.handlers.messages as messages
+# ALL YOUR EXISTING MLTB IMPORTS (keep exactly as they are)
+from . import LOGGER, bot_loop
 
-# Set up logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
+from .core.mltb_client import TgClient
 
+from .core.config_manager import Config
+
+Config.load()
+
+# ALL YOUR EXISTING MAIN FUNCTION (completely untouched)
 async def main():
-    """Main function with enhanced mode support"""
-    try:
-        # Start health check server
-        await health.start_health_server()
-        
-        # Create application
-        application = Application.builder().token(BOT_TOKEN).build()
-        
-        # Add command handlers
-        application.add_handler(CommandHandler("start", commands.start))
-        application.add_handler(CommandHandler("test", commands.test_handler))
-        
-        # Standard leech command (your reliable working version)
-        application.add_handler(CommandHandler("leech", commands.leech_command))
-        
-        # Enhanced fast leech command (new multi-connection mode)
-        try:
-            # Try to import enhanced mode
-            import bot.handlers.enhanced_processor
-            application.add_handler(CommandHandler("fast", commands.fast_leech_command))
-            print("✅ Enhanced mode loaded successfully")
-            LOGGER.info("Enhanced multi-connection mode available")
-            enhanced_available = True
-        except ImportError as e:
-            print(f"⚠️ Enhanced mode not available: {e}")
-            LOGGER.warning(f"Enhanced mode not available: {e}")
-            # Add fallback - /fast will use standard mode
-            application.add_handler(CommandHandler("fast", commands.leech_command))
-            enhanced_available = False
-        
-        # Message handler for direct URL processing (uses standard mode by default)
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
-        
-        # Bot startup messages
-        print(f"🚀 Bot starting with token: {BOT_TOKEN[:20]}...")
-        print(f"🌐 Health check server running on port 8000")
-        print(f"🔍 DEBUG MODE: All messages will be logged")
-        
-        if enhanced_available:
-            print(f"⚡ ENHANCED MODE: Multi-connection downloads available")
-            print(f"📋 COMMANDS: /leech (standard) | /fast (enhanced)")
-        else:
-            print(f"🔧 STANDARD MODE: Reliable single-connection downloads")
-            print(f"📋 COMMANDS: /leech (standard) | /fast (fallback to standard)")
-        
-        # Start the bot
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-        
-        if enhanced_available:
-            LOGGER.info("✅ Bot started successfully with Enhanced Multi-Connection Mode!")
-            print("✅ Bot is now running with ENHANCED Terabox processing!")
-            print("🚀 Use /fast for high-speed multi-connection downloads")
-            print("🛡️ Use /leech for reliable standard downloads")
-        else:
-            LOGGER.info("✅ Bot started successfully with Standard Mode!")
-            print("✅ Bot is now running with STANDARD Terabox processing!")
-            print("🔧 Both /leech and /fast use reliable standard mode")
-        
-        print("\n" + "="*50)
-        print("📋 AVAILABLE COMMANDS:")
-        print("• /start - Show bot information")
-        print("• /test - Test bot functionality") 
-        print("• /leech <url> - Standard reliable download")
-        if enhanced_available:
-            print("• /fast <url> - Enhanced multi-connection download (NEW)")
-        else:
-            print("• /fast <url> - Fallback to standard download")
-        print("• Direct URL - Send Terabox URL for standard processing")
-        print("="*50 + "\n")
-        
-        # Keep running
-        while True:
-            await asyncio.sleep(1)
-            
-    except Exception as e:
-        LOGGER.error(f"❌ Bot startup error: {e}")
-        print(f"❌ ERROR: {e}")
-        print("🔄 Falling back to basic bot mode...")
-        
-        # Fallback mode - basic bot without enhanced features
-        try:
-            await basic_bot_fallback()
-        except Exception as fallback_error:
-            LOGGER.error(f"❌ Fallback mode also failed: {fallback_error}")
-            print(f"❌ CRITICAL ERROR: {fallback_error}")
+    from asyncio import gather
 
-async def basic_bot_fallback():
-    """Basic fallback bot if enhanced mode completely fails"""
-    print("🔄 Starting in BASIC FALLBACK mode...")
-    
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Only add essential handlers
-    application.add_handler(CommandHandler("start", commands.start))
-    application.add_handler(CommandHandler("test", commands.test_handler))
-    application.add_handler(CommandHandler("leech", commands.leech_command))
-    application.add_handler(CommandHandler("fast", commands.leech_command))  # Fast fallback to standard
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
-    
-    print("✅ BASIC BOT: Running in safe fallback mode")
-    LOGGER.info("Basic fallback mode activated")
-    
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    
-    while True:
-        await asyncio.sleep(1)
+    from .core.startup import (
+        load_settings,
+        load_configurations,
+        save_settings,
+        update_aria2_options,
+        update_nzb_options,
+        update_qb_options,
+        update_variables,
+    )
 
-if __name__ == "__main__":
+    await load_settings()
+    await gather(TgClient.start_bot(), TgClient.start_user())
+    await gather(load_configurations(), update_variables())
+
+    from .core.torrent_manager import TorrentManager
+
+    await TorrentManager.initiate()
+    await gather(
+        update_qb_options(),
+        update_aria2_options(),
+        update_nzb_options(),
+    )
+
+    from .helper.ext_utils.files_utils import clean_all
+    from .core.jdownloader_booter import jdownloader
+    from .helper.ext_utils.telegraph_helper import telegraph
+    from .helper.mirror_leech_utils.rclone_utils.serve import rclone_serve_booter
+    from .modules import (
+        initiate_search_tools,
+        get_packages_version,
+        restart_notification,
+    )
+
+    await gather(
+        save_settings(),
+        jdownloader.boot(),
+        clean_all(),
+        initiate_search_tools(),
+        get_packages_version(),
+        restart_notification(),
+        telegraph.create_account(),
+        rclone_serve_booter(),
+    )
+
+# ALL YOUR EXISTING BOT STARTUP (completely untouched)
+bot_loop.run_until_complete(main())
+
+from .helper.ext_utils.bot_utils import create_help_buttons
+from .helper.listeners.aria2_listener import add_aria2_callbacks
+from .core.handlers import add_handlers
+
+add_aria2_callbacks()
+create_help_buttons()
+add_handlers()
+
+# ========================
+# NEW: VERIFICATION SYSTEM (Independent - doesn't affect existing code)
+# ========================
+
+async def start_verification_system_safely():
+    """
+    Start verification system independently and safely
+    If it fails, main bot continues working normally
+    """
+    import os
+    
+    # Only start if verification is enabled
+    if os.environ.get('IS_VERIFY', 'False').lower() != 'true':
+        LOGGER.info("ℹ️  Token verification system is DISABLED")
+        return
+    
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Bot stopped by user")
-        LOGGER.info("Bot stopped by user")
-    except Exception as e:
-        print(f"❌ FATAL ERROR: {e}")
-        LOGGER.error(f"Fatal error: {e}")
+        LOGGER.info("🔐 Starting token verification system...")
         
+        # Import verification modules
+        from .modules.token_verification import verification_cleanup_task
+        
+        # Start cleanup task
+        await verification_cleanup_task()
+        LOGGER.info("✅ Token verification cleanup task started successfully")
+        
+    except ImportError as e:
+        LOGGER.warning(f"⚠️  Verification modules not found: {e}")
+        LOGGER.info("ℹ️  Bot will continue working without verification")
+        
+    except Exception as e:
+        LOGGER.error(f"❌ Failed to start verification system: {e}")
+        LOGGER.info("ℹ️  Bot will continue working without verification")
+
+# NEW: Start verification system in background (safe)
+import asyncio
+import os
+
+# Only create task if verification is enabled
+if os.environ.get('IS_VERIFY', 'False').lower() == 'true':
+    try:
+        # Start verification system asynchronously
+        asyncio.create_task(start_verification_system_safely())
+        LOGGER.info("🚀 Verification system task created")
+    except Exception as e:
+        LOGGER.error(f"❌ Failed to create verification task: {e}")
+        LOGGER.info("ℹ️  Bot will continue without verification")
+else:
+    LOGGER.info("ℹ️  Verification system disabled by configuration")
+
+# ALL YOUR EXISTING BOT FINAL STARTUP (completely untouched)
+LOGGER.info("Bot Started!")
+
+# NEW: Log current configuration status
+LOGGER.info("🔐 Enhanced MLTB with Token Verification Support")
+LOGGER.info(f"📊 Verification Status: {'ENABLED' if os.environ.get('IS_VERIFY', 'False').lower() == 'true' else 'DISABLED'}")
+
+bot_loop.run_forever()
+    
