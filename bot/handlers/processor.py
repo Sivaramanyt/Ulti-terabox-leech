@@ -1,5 +1,5 @@
 """
-Main file processing logic - Using anasty17's Terabox API
+Main file processing logic - Using anasty17's API
 """
 
 import os
@@ -11,7 +11,7 @@ from config import LOGGER, DOWNLOAD_DIR
 from ..utils.terabox_extractor import extract_terabox_info, format_size
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URLs using anasty17's exact method"""
+    """Process Terabox URL using anasty17's EXACT method"""
     print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
@@ -19,7 +19,7 @@ async def process_terabox_url(update: Update, url: str):
     
     try:
         # Step 1: Extract file info using anasty17's API
-        print(f"📋 Step 1: Using anasty17's API...")
+        print(f"📋 Step 1: Using anasty17's wdzone-terabox-api...")
         await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
         
         file_info = extract_terabox_info(url)
@@ -129,7 +129,7 @@ async def process_terabox_url(update: Update, url: str):
         except:
             pass
         
-        print(f"🎉 Process complete: {filename} successfully processed using anasty17's API!")
+        print(f"🎉 Process complete: {filename} successfully processed!")
         LOGGER.info(f"Successfully processed: {filename}")
         
     except Exception as e:
