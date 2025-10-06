@@ -6,7 +6,7 @@ import aiohttp
 import aiofiles
 from pathlib import Path
 from config import DOWNLOAD_DIR, LOGGER
-from ..telegram_helper.message_utils import editMessage
+from ...telegram_helper.message_utils import editMessage
 
 class DirectDownloader:
     def __init__(self):
@@ -44,3 +44,4 @@ class DirectDownloader:
         except Exception as e:
             LOGGER.error(f"Download error: {e}")
             return None
+            
