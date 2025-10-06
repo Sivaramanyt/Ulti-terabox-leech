@@ -1,105 +1,98 @@
 """
-Terabox URL processor - Supports multiple domains
+Terabox URL processor - Using anasty17's exact method
+API: https://wdzone-terabox-api.vercel.app/api
 """
 
 import requests
+from urllib.parse import quote
 from config import LOGGER
+
+def speed_string_to_bytes(size_str):
+    """Convert size string to bytes (exactly like anasty17)"""
+    size_str = size_str.replace(" ", "").upper()
+    
+    if "KB" in size_str:
+        return float(size_str.replace("KB", "")) * 1024
+    elif "MB" in size_str:
+        return float(size_str.replace("MB", "")) * 1024 * 1024
+    elif "GB" in size_str:
+        return float(size_str.replace("GB", "")) * 1024 * 1024 * 1024
+    elif "TB" in size_str:
+        return float(size_str.replace("TB", "")) * 1024 * 1024 * 1024 * 1024
+    else:
+        try:
+            return float(size_str.replace("B", ""))
+        except:
+            return 0
 
 def extract_terabox_info(url):
     """
-    Extract file info from Terabox URLs
-    Supports: terabox.com, teraboxurl.com, terasharelink.com
+    Extract file info from Terabox URLs - ANASTY17's EXACT METHOD
+    Uses: https://wdzone-terabox-api.vercel.app/api
     """
     try:
         print(f"🔍 Processing URL: {url}")
         LOGGER.info(f"Processing URL: {url}")
         
-        # Supported domains
-        supported_domains = [
-            'terabox.com', 
-            'teraboxurl.com', 
-            'terasharelink.com',
-            '1024tera.com',
-            'momerybox.com',
-            'tibibox.com',
-            '4funbox.co'
-        ]
+        # If it's already a direct file URL, return it
+        if "file" in url:
+            return url
         
-        # Check if URL is supported
-        is_supported = any(domain in url.lower() for domain in supported_domains)
-        if not is_supported:
-            raise Exception("URL not supported. Please use Terabox, TeraboxURL, or Terasharelink URLs")
-        
-        # Extract surl from different formats
-        surl = None
-        if 'surl=' in url:
-            surl = url.split('surl=')[-1].split('&')[0]
-        elif '/s/' in url:
-            surl = url.split('/s/')[-1].split('?')[0].split('#')[0]
-        
-        if not surl:
-            raise Exception("Could not extract file ID from URL")
-        
-        print(f"📋 Extracted surl: {surl}")
-        LOGGER.info(f"Extracted surl: {surl}")
-        
-        # Try different API endpoints
-        api_endpoints = [
-            "https://www.terabox.com/api/shorturlinfo",
-            "https://teraboxurl.com/api/shorturlinfo",
-            "https://terasharelink.com/api/shorturlinfo"
-        ]
+        # Use anasty17's exact API
+        apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.terabox.com/',
-            'Origin': 'https://www.terabox.com'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0'
         }
         
-        params = {
-            'shorturl': surl,
-            'root': '1'
+        print(f"🌐 Using API: {apiurl}")
+        LOGGER.info(f"Making API request to: {apiurl}")
+        
+        # Make API request (exactly like anasty17)
+        response = requests.get(apiurl, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            raise Exception(f"API request failed with status: {response.status_code}")
+        
+        req = response.json()
+        print(f"📄 API Response: {req}")
+        LOGGER.info(f"API response: {req}")
+        
+        # Check for successful response (exactly like anasty17)
+        if "Status" not in req:
+            raise Exception("File not found!")
+        
+        if req.get("Status") == "Error":
+            error_msg = req.get("Message", "Unknown error")
+            raise Exception(f"API Error: {error_msg}")
+        
+        # Extract file information (exactly like anasty17)
+        if "Extracted Info" not in req:
+            raise Exception("No file information found in API response")
+        
+        extracted_info = req["Extracted Info"]
+        if not extracted_info:
+            raise Exception("No files found")
+        
+        # Process first file (like anasty17 for single files)
+        data = extracted_info[0]
+        
+        result = {
+            'filename': data["Title"],
+            'size': speed_string_to_bytes(data["Size"].replace(" ", "")),
+            'download_url': data["Direct Download Link"],
+            'type': 'file'
         }
         
-        # Try each API endpoint
-        for api_url in api_endpoints:
-            try:
-                print(f"🌐 Trying API: {api_url}")
-                response = requests.get(api_url, params=params, headers=headers, timeout=30)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    if data.get('errno') == 0 and data.get('list'):
-                        print(f"✅ Success with API: {api_url}")
-                        file_list = data.get('list', [])
-                        
-                        if file_list:
-                            file_info = file_list[0]
-                            result = {
-                                'filename': file_info.get('server_filename', 'Unknown'),
-                                'size': file_info.get('size', 0),
-                                'download_url': file_info.get('dlink', ''),
-                                'type': 'file'
-                            }
-                            
-                            print(f"📁 File found: {result['filename']}")
-                            LOGGER.info(f"File extracted: {result}")
-                            return result
-            
-            except Exception as e:
-                print(f"❌ API {api_url} failed: {e}")
-                continue
+        print(f"✅ File info extracted: {result}")
+        LOGGER.info(f"File extracted: {result}")
         
-        # If all APIs failed
-        raise Exception("All API endpoints failed. The link might be invalid or expired.")
+        return result
         
     except Exception as e:
         print(f"❌ Terabox extraction error: {e}")
         LOGGER.error(f"Terabox extraction error: {e}")
-        raise Exception(f"Failed to process link: {str(e)}")
+        raise Exception(f"Failed to process Terabox link: {str(e)}")
 
 def format_size(bytes_size):
     """Format file size in human readable format"""
@@ -108,3 +101,4 @@ def format_size(bytes_size):
             return f"{bytes_size:.1f} {unit}"
         bytes_size /= 1024
     return f"{bytes_size:.1f} TB"
+        
