@@ -1,6 +1,6 @@
 """
-Ultra Simple Terabox Leech Bot - Main Entry
-Modular structure with separate files
+Ultra Simple Terabox Leech Bot - Main Entry Point
+Fixed modular structure with proper URL detection
 """
 
 import asyncio
@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from config import BOT_TOKEN, LOGGER
 from .utils.health_server import start_health_server
 from .handlers.commands import start, test_handler, leech_command
-from .handlers.messages import echo
+from .handlers.messages import handle_message
 
 # Set up logging
 logging.basicConfig(
@@ -25,11 +25,11 @@ async def main():
         # Create application
         application = Application.builder().token(BOT_TOKEN).build()
         
-        # Add handlers
+        # Add handlers (FIXED ORDER)
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("test", test_handler))
         application.add_handler(CommandHandler("leech", leech_command))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         print(f"🚀 Bot starting with token: {BOT_TOKEN[:20]}...")
         print(f"🌐 Health check server running on port 8000")
@@ -40,8 +40,8 @@ async def main():
         await application.start()
         await application.updater.start_polling()
         
-        LOGGER.info("✅ Bot started successfully!")
-        print("✅ Bot is now running with WORKING leech functionality!")
+        LOGGER.info("✅ Bot started successfully with FIXED Terabox processing!")
+        print("✅ Bot is now running with WORKING Terabox leech functionality!")
         
         # Keep running
         while True:
