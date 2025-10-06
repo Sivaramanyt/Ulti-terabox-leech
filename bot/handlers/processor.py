@@ -1,17 +1,116 @@
 """
-Main file processing logic - FIXED MARKDOWN ERROR
+Main file processing logic - FIXED IMPORTS
 """
 
 import os
+import requests
 import aiohttp
 import aiofiles
 from pathlib import Path
+from urllib.parse import quote
 from telegram import Update
 from config import LOGGER, DOWNLOAD_DIR
-import bot.utils.terabox_api as terabox_api
+
+# Terabox API functions (inline to avoid import issues)
+def speed_string_to_bytes(size_str):
+    """Convert size string to bytes"""
+    size_str = size_str.replace(" ", "").upper()
+    
+    if "KB" in size_str:
+        return float(size_str.replace("KB", "")) * 1024
+    elif "MB" in size_str:
+        return float(size_str.replace("MB", "")) * 1024 * 1024
+    elif "GB" in size_str:
+        return float(size_str.replace("GB", "")) * 1024 * 1024 * 1024
+    elif "TB" in size_str:
+        return float(size_str.replace("TB", "")) * 1024 * 1024 * 1024 * 1024
+    else:
+        try:
+            return float(size_str.replace("B", ""))
+        except:
+            return 0
+
+def extract_terabox_info(url):
+    """Extract file info using wdzone-terabox-api"""
+    try:
+        print(f"🔍 Processing URL: {url}")
+        LOGGER.info(f"Processing URL: {url}")
+        
+        # Use wdzone-terabox-api
+        apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0'
+        }
+        
+        print(f"🌐 API URL: {apiurl}")
+        LOGGER.info(f"Making API request to: {apiurl}")
+        
+        # Make API request
+        response = requests.get(apiurl, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            raise Exception(f"API request failed with status: {response.status_code}")
+        
+        req = response.json()
+        print(f"📄 API Response: {req}")
+        LOGGER.info(f"API response: {req}")
+        
+        # Check for successful response (FIXED FOR EMOJI KEYS)
+        extracted_info = None
+        
+        if "✅ Status" in req and req["✅ Status"] == "Success":
+            # New API format with emoji keys
+            extracted_info = req.get("📜 Extracted Info", [])
+        elif "Status" in req and req["Status"] == "Success":
+            # Old API format without emojis
+            extracted_info = req.get("Extracted Info", [])
+        else:
+            # Check for error
+            if "❌ Status" in req:
+                error_msg = req.get("📜 Message", "Unknown error")
+                raise Exception(f"API Error: {error_msg}")
+            else:
+                raise Exception("Invalid API response format")
+        
+        if not extracted_info:
+            raise Exception("No files found")
+        
+        # Process first file (FIXED FOR EMOJI KEYS)
+        data = extracted_info[0]
+        
+        # Handle both emoji and non-emoji keys
+        filename = data.get("📂 Title") or data.get("Title", "Unknown")
+        size_str = data.get("📏 Size") or data.get("Size", "0 B")
+        download_url = data.get("🔽 Direct Download Link") or data.get("Direct Download Link", "")
+        
+        result = {
+            'filename': filename,
+            'size': speed_string_to_bytes(size_str.replace(" ", "")),
+            'download_url': download_url,
+            'type': 'file'
+        }
+        
+        print(f"✅ File info extracted: {result}")
+        LOGGER.info(f"File extracted: {result}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ Terabox extraction error: {e}")
+        LOGGER.error(f"Terabox extraction error: {e}")
+        raise Exception(f"Failed to process Terabox link: {str(e)}")
+
+def format_size(bytes_size):
+    """Format file size"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_size < 1024:
+            return f"{bytes_size:.1f} {unit}"
+        bytes_size /= 1024
+    return f"{bytes_size:.1f} TB"
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL - FIXED VERSION WITH NO MARKDOWN ERRORS"""
+    """Process Terabox URL - COMPLETE WORKING VERSION"""
     print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
@@ -22,7 +121,7 @@ async def process_terabox_url(update: Update, url: str):
         print(f"📋 Step 1: Using wdzone-terabox-api...")
         await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
         
-        file_info = terabox_api.extract_terabox_info(url)
+        file_info = extract_terabox_info(url)
         
         filename = file_info['filename']
         file_size = file_info['size']
@@ -37,13 +136,13 @@ async def process_terabox_url(update: Update, url: str):
         # Step 2: Size check
         if file_size > 2 * 1024 * 1024 * 1024:  # 2GB limit
             await status_msg.edit_text(
-                f"❌ **File too large!**\n\n📁 **File:** {filename}\n📊 **Size:** {terabox_api.format_size(file_size)}\n\n**Max allowed:** 2GB for free tier", 
+                f"❌ **File too large!**\n\n📊 **Size:** {format_size(file_size)}\n\n**Max allowed:** 2GB for free tier", 
                 parse_mode='Markdown'
             )
             return
         
         await status_msg.edit_text(
-            f"📁 **File Found**\n📊 **{terabox_api.format_size(file_size)}**\n✅ **API Success**\n⬇️ **Downloading...**",
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⬇️ **Downloading...**",
             parse_mode='Markdown'
         )
         
@@ -76,7 +175,7 @@ async def process_terabox_url(update: Update, url: str):
                             progress = (downloaded / total_size) * 100 if total_size > 0 else 0
                             try:
                                 await status_msg.edit_text(
-                                    f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{terabox_api.format_size(downloaded)} / {terabox_api.format_size(total_size)}**",
+                                    f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
                                     parse_mode='Markdown'
                                 )
                             except:
@@ -90,7 +189,7 @@ async def process_terabox_url(update: Update, url: str):
         
         try:
             # Create caption without markdown to avoid parsing errors
-            caption = f"🎥 {filename}\n📊 Size: {terabox_api.format_size(file_size)}\n🔗 Source: wdzone-terabox-api"
+            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🔗 Source: wdzone-terabox-api"
             
             # Detect file type and upload (NO PARSE_MODE)
             with open(file_path, 'rb') as file:
