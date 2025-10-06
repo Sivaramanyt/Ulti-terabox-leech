@@ -1,5 +1,5 @@
 """
-Main file processing logic - WORKING VERSION WITH SAFER SPEED OPTIMIZATION
+Main file processing logic - ORIGINAL WORKING + TINY SAFE OPTIMIZATION
 """
 
 import os
@@ -102,7 +102,7 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL - WORKING VERSION WITH SAFER SPEED OPTIMIZATION"""
+    """Process Terabox URL - BACK TO ORIGINAL WORKING VERSION"""
     print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
@@ -134,24 +134,18 @@ async def process_terabox_url(update: Update, url: str):
             return
         
         await status_msg.edit_text(
-            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⚡ **Fast Download...**",
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⬇️ **Downloading...**",
             parse_mode='Markdown'
         )
         
-        # Step 3: SAFER SPEED OPTIMIZED DOWNLOAD (MODERATE OPTIMIZATIONS)
-        print(f"⚡ Step 3: Optimized downloading...")
+        # Step 3: BACK TO ORIGINAL + TINY SAFE OPTIMIZATION
+        print(f"⬇️ Step 3: Downloading file...")
         file_path = Path(DOWNLOAD_DIR) / filename
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         
-        # SAFER OPTIMIZATION: Moderate settings that won't break
+        # ORIGINAL CONNECTION SETTINGS (NO AGGRESSIVE OPTIMIZATIONS)
         async with aiohttp.ClientSession() as session:
-            # SAFER: Better headers but no aggressive connection settings
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': '*/*'
-            }
-            
-            async with session.get(download_url, headers=headers) as response:
+            async with session.get(download_url) as response:
                 if response.status != 200:
                     await status_msg.edit_text(
                         f"❌ **Download failed**\n\n**HTTP Status:** {response.status}", 
@@ -162,26 +156,26 @@ async def process_terabox_url(update: Update, url: str):
                 total_size = int(response.headers.get('content-length', file_size))
                 downloaded = 0
                 
-                print(f"📥 Optimized downloading {filename}, size: {total_size}")
+                print(f"📥 Downloading {filename}, size: {total_size}")
                 
                 async with aiofiles.open(file_path, 'wb') as f:
-                    # SAFER OPTIMIZATION: 128KB chunks (faster but stable)
-                    async for chunk in response.content.iter_chunked(128 * 1024):  # 128KB chunks
+                    # TINY SAFE OPTIMIZATION: 32KB chunks (just 4x bigger than original)
+                    async for chunk in response.content.iter_chunked(32 * 1024):  # 32KB chunks
                         await f.write(chunk)
                         downloaded += len(chunk)
                         
-                        # Update progress every 3MB (balanced approach)
-                        if downloaded % (3 * 1024 * 1024) == 0:
+                        # Update progress every 2MB (same as working version)
+                        if downloaded % (2 * 1024 * 1024) == 0:
                             progress = (downloaded / total_size) * 100 if total_size > 0 else 0
                             try:
                                 await status_msg.edit_text(
-                                    f"📁 **Fast Download**\n⚡ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
+                                    f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
                                     parse_mode='Markdown'
                                 )
                             except:
                                 pass  # Ignore rate limits
         
-        print(f"✅ Step 3 complete: Optimized download finished")
+        print(f"✅ Step 3 complete: File downloaded")
         
         # Step 4: Upload to Telegram (EXACTLY SAME AS WORKING VERSION)
         print(f"📤 Step 4: Uploading to Telegram...")
@@ -189,7 +183,7 @@ async def process_terabox_url(update: Update, url: str):
         
         try:
             # Create caption without markdown
-            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n⚡ Fast Leech Complete\n🔗 Source: wdzone-terabox-api"
+            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🔗 Source: wdzone-terabox-api"
             
             # Detect file type and upload (NO PARSE_MODE - SAME AS WORKING)
             with open(file_path, 'rb') as file:
@@ -230,7 +224,7 @@ async def process_terabox_url(update: Update, url: str):
         except:
             pass
         
-        print(f"🎉 Process complete: {filename} successfully processed with optimized speed!")
+        print(f"🎉 Process complete: {filename} successfully processed!")
         LOGGER.info(f"Successfully processed: {filename}")
         
     except Exception as e:
