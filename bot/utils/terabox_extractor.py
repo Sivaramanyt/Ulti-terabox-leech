@@ -1,6 +1,6 @@
 """
-Terabox URL processor - Using anasty17's exact method
-API: https://wdzone-terabox-api.vercel.app/api
+Terabox URL processor - ANASTY17'S EXACT METHOD
+Uses: https://wdzone-terabox-api.vercel.app/api
 """
 
 import requests
@@ -27,8 +27,8 @@ def speed_string_to_bytes(size_str):
 
 def extract_terabox_info(url):
     """
-    Extract file info from Terabox URLs - ANASTY17's EXACT METHOD
-    Uses: https://wdzone-terabox-api.vercel.app/api
+    Extract file info using anasty17's EXACT method
+    API: https://wdzone-terabox-api.vercel.app/api
     """
     try:
         print(f"🔍 Processing URL: {url}")
@@ -38,17 +38,17 @@ def extract_terabox_info(url):
         if "file" in url:
             return url
         
-        # Use anasty17's exact API
+        # Use anasty17's exact API (SAME AS WORKING BOT)
         apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0'
         }
         
-        print(f"🌐 Using API: {apiurl}")
+        print(f"🌐 API URL: {apiurl}")
         LOGGER.info(f"Making API request to: {apiurl}")
         
-        # Make API request (exactly like anasty17)
+        # Make API request (EXACTLY like anasty17)
         response = requests.get(apiurl, headers=headers, timeout=30)
         
         if response.status_code != 200:
@@ -58,7 +58,7 @@ def extract_terabox_info(url):
         print(f"📄 API Response: {req}")
         LOGGER.info(f"API response: {req}")
         
-        # Check for successful response (exactly like anasty17)
+        # Check for successful response (EXACTLY like anasty17)
         if "Status" not in req:
             raise Exception("File not found!")
         
@@ -66,7 +66,7 @@ def extract_terabox_info(url):
             error_msg = req.get("Message", "Unknown error")
             raise Exception(f"API Error: {error_msg}")
         
-        # Extract file information (exactly like anasty17)
+        # Extract file information (EXACTLY like anasty17)
         if "Extracted Info" not in req:
             raise Exception("No file information found in API response")
         
