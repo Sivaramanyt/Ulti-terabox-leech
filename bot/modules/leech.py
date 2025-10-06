@@ -6,7 +6,7 @@ from ..helper.mirror_leech_utils.download_utils.direct_downloader import DirectD
 from ..helper.mirror_leech_utils.upload_utils.telegram_uploader import TelegramUploader
 from ..helper.telegram_helper.message_utils import sendMessage, editMessage
 from ..helper.ext_utils.bot_utils import new_task
-from config import LOGGER, OWNER_ID, AUTHORIZED_CHATS
+from config import LOGGER, OWNER_ID
 
 @TgClient.bot.on_message(filters.command("start"))
 async def start_handler(client, message: Message):
@@ -101,3 +101,4 @@ def format_size(size_bytes):
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
+    
