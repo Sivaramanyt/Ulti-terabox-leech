@@ -1,6 +1,5 @@
-
 """
-Bot command handlers - FIXED FUNCTIONS
+Bot command handlers - WITH ENHANCED MODE OPTION
 """
 
 from telegram import Update
@@ -11,46 +10,69 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Start command handler"""
     user_id = update.effective_user.id
     LOGGER.info(f"Start command from user {user_id}")
-    print(f"🚀 DEBUG: Start command received from {user_id}")
     
     text = f"""
-🚀 **Ultra Simple Terabox Leech Bot**
+🚀 **Ultra Terabox Leech Bot - Enhanced Edition**
 
-**Usage:**
-• `/leech <terabox_url>`
-• Just send Terabox URL directly
+**Commands:**
+• `/leech <url>` - Standard speed leech
+• `/fast <url>` - Enhanced multi-connection leech
+• `/test` - Test bot functionality
 
 **Supported:**
 • terabox.com • teraboxurl.com • 1024tera.com
 
 **Features:**
-• ⚡ Lightning fast • 🎯 Uses wdzone-terabox-api
-• 💾 Memory optimized • 🆓 Free tier friendly
+• ⚡ Multi-connection downloads (Enhanced mode)
+• 🔄 Automatic fallback to simple mode
+• 🔄 Retry logic with exponential backoff
+• 💾 Memory optimized streaming
+• 🆓 Free tier friendly
 
-**Debug Info:**
-• Your ID: `{user_id}` • Owner ID: `{OWNER_ID}`
-• Bot Status: ✅ WORKING
+**Modes:**
+• **Standard Mode:** Reliable, slower speed
+• **Enhanced Mode:** Multiple connections, faster speed
 
-Send me a Terabox link! 📂
+**Your ID:** `{user_id}` | **Owner:** `{OWNER_ID}`
+
+Send a Terabox link or use commands! 📂
     """
     
     await update.message.reply_text(text, parse_mode='Markdown')
 
 async def test_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Test command"""
-    await update.message.reply_text("🧪 **Test successful!** Bot working!", parse_mode='Markdown')
+    await update.message.reply_text("🧪 **Enhanced Bot Status: ✅ WORKING!**", parse_mode='Markdown')
 
 async def leech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Leech command handler"""
+    """Standard leech command"""
     user_id = update.effective_user.id
-    LOGGER.info(f"Leech command from user {user_id}")
-    print(f"📥 DEBUG: Leech command from {user_id}")
+    LOGGER.info(f"Standard leech command from user {user_id}")
     
     if not context.args:
         await update.message.reply_text("❌ **Usage:** `/leech <terabox_url>`", parse_mode='Markdown')
         return
     
-    # Import here to avoid circular imports
-    from bot.handlers.processor import process_terabox_url
+    from .processor import process_terabox_url
     url = context.args[0]
     await process_terabox_url(update, url)
+
+async def fast_leech_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Enhanced fast leech command"""
+    user_id = update.effective_user.id
+    LOGGER.info(f"Enhanced leech command from user {user_id}")
+    
+    if not context.args:
+        await update.message.reply_text("❌ **Usage:** `/fast <terabox_url>`", parse_mode='Markdown')
+        return
+    
+    try:
+        from .enhanced_processor import enhanced_process_terabox_url
+        url = context.args[0]
+        await enhanced_process_terabox_url(update, url)
+    except ImportError:
+        await update.message.reply_text("❌ **Enhanced mode not available. Using standard mode...**", parse_mode='Markdown')
+        from .processor import process_terabox_url
+        url = context.args[0]
+        await process_terabox_url(update, url)
+        
