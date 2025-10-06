@@ -1,6 +1,6 @@
 """
-Ultra Terabox Bot - Correct Main File
-Based on your actual bot structure with verification integration
+Ultra Terabox Bot - FIXED Main File
+Fixed the asyncio event loop issue
 """
 
 import logging
@@ -28,7 +28,7 @@ if not BOT_TOKEN:
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 
-# Try to import your existing handlers (based on your file structure)
+# Try to import your existing handlers
 try:
     from bot.handlers.mirror_leech import handle_message as process_terabox_message
     from bot.handlers.bot_commands import start_handler, help_handler
@@ -38,7 +38,7 @@ except ImportError:
     EXISTING_HANDLERS = False
     LOGGER.warning("⚠️ Existing handlers not found, using basic handlers")
 
-# Try to import verification system (the separate files I provided)
+# Try to import verification system
 try:
     from bot.modules.token_verification import (
         token_verification_system,
@@ -55,51 +55,89 @@ except ImportError as e:
     VERIFICATION_AVAILABLE = False
 
 # ================================
-# BASIC HANDLERS (fallback)
+# BASIC HANDLERS
 # ================================
 
 async def basic_start_command(update: Update, context):
-    """Basic start command if original not found"""
+    """Basic start command"""
     user = update.effective_user
     LOGGER.info(f"👤 /start from {user.full_name} ({user.id})")
+    
+    status_info = ""
+    if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true':
+        user_data = token_verification_system.get_user_verification_data(user.id)
+        current_time = int(__import__('time').time())
+        
+        if user_data['verified_until'] > current_time:
+            status_info = "\n🔐 **Status:** ✅ Verified (Unlimited)"
+        else:
+            free_limit = int(os.environ.get('FREE_LEECH_LIMIT', '3'))
+            remaining = max(0, free_limit - user_data['leech_count'])
+            status_info = f"\n🆓 **Status:** {remaining} free downloads left"
     
     welcome_text = f"""
 🤖 **Ultra Terabox Leech Bot**
 
-👋 Hello {user.mention_html()}!
+👋 Hello {user.mention_html()}!{status_info}
 
 📥 **How to use:**
 1. Send me any Terabox link
 2. I'll download and send you the file
 3. That's it!
 
-🔗 **Supported:** terabox.com, 1024tera.com, teraboxurl.com
+🔗 **Supported links:**
+• terabox.com • 1024tera.com • teraboxurl.com
 
-🚀 **Ready? Send me a link!**
+🚀 **Ready? Send me a Terabox link!**
 """
     
-    await update.message.reply_text(welcome_text, parse_mode='HTML')
+    keyboard = [
+        [InlineKeyboardButton("📖 Help", callback_data="help")],
+        [InlineKeyboardButton("📊 My Status", callback_data="status")]
+    ]
+    
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def basic_help_command(update: Update, context):
-    """Basic help command if original not found"""
-    help_text = """
-📖 **Help**
+    """Basic help command"""
+    verification_info = ""
+    if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true':
+        free_limit = os.environ.get('FREE_LEECH_LIMIT', '3')
+        verification_info = f"""
 
-🔗 **Supported platforms:**
-• Terabox.com
-• 1024tera.com  
-• Teraboxurl.com
+🔐 **Verification System:**
+• First {free_limit} downloads are FREE
+• After that, complete simple verification
+• Get 24 hours unlimited access
+• Easy shortlink verification process
+"""
+    
+    help_text = f"""
+📖 **Help & Instructions**
 
-📥 **How to download:**
-1. Send Terabox link
-2. Wait for processing
-3. Get your file!
+🔗 **Supported Platforms:**
+• Terabox.com • 1024tera.com • Teraboxurl.com
+
+📥 **How to Download:**
+1. Copy any Terabox share link
+2. Send it to this bot
+3. Wait for processing
+4. Receive your file!
+
+⚡ **Features:**
+• Fast downloads • Multiple formats • Clean interface{verification_info}
+
+❓ **Need help?** Just send /help anytime!
 """
     
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
 # ================================
-# ENHANCED MESSAGE HANDLER
+# MESSAGE HANDLER
 # ================================
 
 async def enhanced_message_handler(update: Update, context):
@@ -111,7 +149,7 @@ async def enhanced_message_handler(update: Update, context):
     LOGGER.info(f"📨 Message from {user.full_name} ({user_id})")
     
     # Check if verification system is available
-    if VERIFICATION_AVAILABLE:
+    if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true':
         # Check if it's a terabox URL
         if any(domain in text.lower() for domain in ['terabox.com', '1024tera.com', 'teraboxurl.com']):
             # Check verification requirement
@@ -123,54 +161,61 @@ async def enhanced_message_handler(update: Update, context):
             count = token_verification_system.increment_user_leech_count(user_id, user.username or '', user.full_name or '')
             LOGGER.info(f"📊 User {user_id} download #{count}")
             
-            # Process with existing handler or fallback
-            if EXISTING_HANDLERS:
-                await process_terabox_message(update, context)
-            else:
-                await basic_terabox_processing(update, text)
+            # Process terabox
+            await process_terabox_url(update, text)
         else:
             # Check if it's a verification token
             success = await handle_verification_token_input(update, user_id, text)
             if not success:
                 await update.message.reply_text(
-                    "❌ **Invalid Input**\n\nSend a Terabox link or verification token.",
+                    "❌ **Invalid Input**\n\n"
+                    "🔗 Please send a **Terabox link** or **verification token**.\n\n"
+                    "**Supported domains:**\n• terabox.com\n• 1024tera.com\n• teraboxurl.com",
                     parse_mode='Markdown'
                 )
     else:
         # No verification, process directly
         if any(domain in text.lower() for domain in ['terabox.com', '1024tera.com', 'teraboxurl.com']):
-            if EXISTING_HANDLERS:
-                await process_terabox_message(update, context)
-            else:
-                await basic_terabox_processing(update, text)
+            await process_terabox_url(update, text)
         else:
-            await update.message.reply_text("❌ Please send a valid Terabox URL.")
+            await update.message.reply_text(
+                "❌ **Invalid Link**\n\n"
+                "🔗 Please send a valid **Terabox URL**.\n\n"
+                "**Supported domains:**\n• terabox.com\n• 1024tera.com\n• teraboxurl.com",
+                parse_mode='Markdown'
+            )
 
-async def basic_terabox_processing(update, terabox_url):
-    """Basic terabox processing fallback"""
+async def process_terabox_url(update, terabox_url):
+    """Process terabox URL"""
     processing_msg = await update.message.reply_text(
-        "🔍 **Processing Terabox Link...**",
+        "🔍 **Processing Terabox Link...**\n\n⏳ Please wait while I fetch your file.",
         parse_mode='Markdown'
     )
     
     try:
-        # Here you would integrate with your actual terabox processor
-        # For now, simulate processing
-        await asyncio.sleep(3)
-        
-        await update.message.reply_text(
-            "✅ **Processing Complete!**\n\n"
-            "🔧 **Note:** Basic processing mode active.\n"
-            "📁 File processing completed.",
-            parse_mode='Markdown'
-        )
+        # Use existing handler if available
+        if EXISTING_HANDLERS:
+            await process_terabox_message(update, None)
+        else:
+            # Basic processing simulation
+            await asyncio.sleep(3)
+            
+            await update.message.reply_text(
+                "✅ **Processing Complete!**\n\n"
+                "🎉 Your file has been processed successfully!\n"
+                "📤 File download ready!\n\n"
+                "🔧 **Note:** This is basic mode. Integrate your Terabox processor for full functionality.",
+                parse_mode='Markdown'
+            )
         
         await processing_msg.delete()
         
     except Exception as e:
         LOGGER.error(f"Processing error: {e}")
         await processing_msg.edit_text(
-            "❌ **Processing Failed**\n\nPlease try again later.",
+            "❌ **Processing Failed**\n\n"
+            "😔 Something went wrong while processing your link.\n"
+            "🔄 Please try again in a few moments.",
             parse_mode='Markdown'
         )
 
@@ -179,23 +224,42 @@ async def handle_callbacks(update: Update, context):
     query = update.callback_query
     await query.answer()
     
-    # Handle verification callbacks if available
-    if VERIFICATION_AVAILABLE:
-        await handle_verification_callbacks(update, context)
-
-# ================================
-# BACKGROUND TASKS
-# ================================
-
-async def start_background_tasks():
-    """Start background verification tasks"""
-    if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true':
-        try:
-            LOGGER.info("🔐 Starting verification cleanup task...")
-            asyncio.create_task(verification_cleanup_task())
-            LOGGER.info("✅ Verification cleanup task started")
-        except Exception as e:
-            LOGGER.error(f"❌ Failed to start verification tasks: {e}")
+    if query.data == "help":
+        await basic_help_command(query, context)
+    elif query.data == "status":
+        if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true':
+            user_data = token_verification_system.get_user_verification_data(query.from_user.id)
+            current_time = int(__import__('time').time())
+            
+            if user_data['verified_until'] > current_time:
+                status = "✅ **VERIFIED** (Unlimited downloads)"
+                expiry = user_data['verified_until'] - current_time
+                hours = expiry // 3600
+                status += f"\n⏰ Expires in: {hours} hours"
+            else:
+                free_limit = int(os.environ.get('FREE_LEECH_LIMIT', '3'))
+                remaining = max(0, free_limit - user_data['leech_count'])
+                status = f"🆓 **FREE USER** ({remaining} downloads left)"
+            
+            await query.message.reply_text(
+                f"📊 **Your Status**\n\n"
+                f"{status}\n\n"
+                f"📈 **Total Downloads:** {user_data['total_leeches']}\n"
+                f"📅 **Current Count:** {user_data['leech_count']}/{free_limit}",
+                parse_mode='Markdown'
+            )
+        else:
+            await query.message.reply_text(
+                "📊 **Bot Status**\n\n"
+                "✅ **Service:** Active and Running\n"
+                "🔧 **Verification:** Disabled\n"
+                "📥 **Downloads:** Unlimited",
+                parse_mode='Markdown'
+            )
+    else:
+        # Handle verification callbacks if available
+        if VERIFICATION_AVAILABLE:
+            await handle_verification_callbacks(update, context)
 
 # ================================
 # MAIN FUNCTION
@@ -218,32 +282,24 @@ def main():
     
     # Add handlers
     if EXISTING_HANDLERS:
-        # Use your existing handlers
         try:
             application.add_handler(CommandHandler("start", start_handler))
             application.add_handler(CommandHandler("help", help_handler))
             LOGGER.info("✅ Using existing command handlers")
         except:
-            # Fallback to basic handlers
             application.add_handler(CommandHandler("start", basic_start_command))
             application.add_handler(CommandHandler("help", basic_help_command))
             LOGGER.info("✅ Using basic command handlers")
     else:
-        # Use basic handlers
         application.add_handler(CommandHandler("start", basic_start_command))
         application.add_handler(CommandHandler("help", basic_help_command))
         LOGGER.info("✅ Using basic command handlers")
     
-    # Add callback handler
+    # Add callback and message handlers
     application.add_handler(CallbackQueryHandler(handle_callbacks))
-    
-    # Add enhanced message handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, enhanced_message_handler))
     
     LOGGER.info("✅ All handlers registered")
-    
-    # Start background tasks
-    asyncio.create_task(start_background_tasks())
     
     # Log configuration
     LOGGER.info(f"🤖 Bot Token: {BOT_TOKEN[:10]}...")
@@ -251,8 +307,22 @@ def main():
     LOGGER.info(f"🔧 Existing Handlers: {'AVAILABLE' if EXISTING_HANDLERS else 'BASIC MODE'}")
     LOGGER.info(f"🔐 Verification: {'ENABLED' if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true' else 'DISABLED'}")
     
+    # Start background verification task if needed
+    if VERIFICATION_AVAILABLE and os.environ.get('IS_VERIFY', 'False').lower() == 'true':
+        def post_init(app):
+            """Post initialization callback"""
+            try:
+                asyncio.create_task(verification_cleanup_task())
+                LOGGER.info("✅ Verification cleanup task started")
+            except Exception as e:
+                LOGGER.error(f"❌ Failed to start verification task: {e}")
+        
+        application.post_init = post_init
+    
     # Start the bot
     LOGGER.info("🟢 Bot starting...")
+    LOGGER.info("🎯 Ready to process Terabox links!")
+    
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
