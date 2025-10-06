@@ -1,0 +1,11 @@
+*.pyc
+__pycache__/
+.env
+config.env
+log.txt
+downloads/
+rclone/
+accounts/
+.vscode/
+*.session
+*.session-journal
