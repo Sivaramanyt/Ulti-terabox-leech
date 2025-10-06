@@ -1,10 +1,9 @@
 """
 Ultra Terabox Bot - FINAL WORKING VERSION
-Fixed all import issues + REAL Terabox Processing
+Simplified to avoid event loop conflicts
 """
 
 import logging
-import asyncio
 import os
 import sys
 
@@ -16,9 +15,15 @@ logging.basicConfig(
 
 LOGGER = logging.getLogger(__name__)
 
-# Get configuration from environment variables
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
-OWNER_ID = int(os.environ.get('OWNER_ID', '0'))
+# Import configuration
+try:
+    from config import BOT_TOKEN, OWNER_ID
+    LOGGER.info("✅ Configuration loaded from config.py")
+except ImportError:
+    # Fallback to environment variables
+    BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
+    OWNER_ID = int(os.environ.get('OWNER_ID', '0'))
+    LOGGER.info("✅ Configuration loaded from environment")
 
 if not BOT_TOKEN:
     LOGGER.error("❌ BOT_TOKEN not set!")
@@ -177,15 +182,15 @@ async def handle_verification_token_input(update: Update, context):
         try:
             from bot.modules.token_verification import handle_verification_token_input as handle_token
             await handle_token(update, context)
+            return
         except Exception as e:
             LOGGER.error(f"❌ Verification token handling failed: {e}")
-            await handle_message(update, context)
-    else:
-        # If no verification system, just process as normal message
-        await handle_message(update, context)
+    
+    # If no verification system or error, just process as normal message
+    await handle_message(update, context)
 
-async def main():
-    """Main function"""
+def main():
+    """Main function - simplified to avoid event loop conflicts"""
     try:
         LOGGER.info("🚀 Starting Ultra Terabox Bot...")
         
@@ -204,7 +209,7 @@ async def main():
             except Exception as e:
                 LOGGER.error(f"❌ Failed to register verification handlers: {e}")
         
-        # Add main message handler - this handles both verification token input and terabox processing
+        # Add main message handler
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_verification_token_input))
         
         LOGGER.info("✅ All handlers registered")
@@ -214,8 +219,8 @@ async def main():
         LOGGER.info("🟢 Bot starting...")
         LOGGER.info("🎯 Ready to process Terabox links!")
         
-        # Start the bot
-        await application.run_polling(drop_pending_updates=True)
+        # Start the bot - use run_polling without async
+        application.run_polling(drop_pending_updates=True)
         
     except Exception as e:
         LOGGER.error(f"❌ Error in main: {e}")
@@ -223,10 +228,10 @@ async def main():
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        main()  # Don't use asyncio.run() - causes conflicts
     except KeyboardInterrupt:
         LOGGER.info("🛑 Bot stopped by user")
     except Exception as e:
         LOGGER.error(f"❌ Fatal error: {e}")
         sys.exit(1)
-    
+                    
