@@ -1,5 +1,5 @@
 """
-Terabox URL processor - ANASTY17'S EXACT METHOD
+Terabox URL processor - FIXED FOR ACTUAL API RESPONSE
 Uses: https://wdzone-terabox-api.vercel.app/api
 """
 
@@ -27,8 +27,7 @@ def speed_string_to_bytes(size_str):
 
 def extract_terabox_info(url):
     """
-    Extract file info using anasty17's EXACT method
-    API: https://wdzone-terabox-api.vercel.app/api
+    Extract file info using wdzone-terabox-api - FIXED FOR ACTUAL RESPONSE
     """
     try:
         print(f"🔍 Processing URL: {url}")
@@ -38,7 +37,7 @@ def extract_terabox_info(url):
         if "file" in url:
             return url
         
-        # Use anasty17's exact API (SAME AS WORKING BOT)
+        # Use wdzone-terabox-api
         apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
         
         headers = {
@@ -48,7 +47,7 @@ def extract_terabox_info(url):
         print(f"🌐 API URL: {apiurl}")
         LOGGER.info(f"Making API request to: {apiurl}")
         
-        # Make API request (EXACTLY like anasty17)
+        # Make API request
         response = requests.get(apiurl, headers=headers, timeout=30)
         
         if response.status_code != 200:
@@ -58,29 +57,39 @@ def extract_terabox_info(url):
         print(f"📄 API Response: {req}")
         LOGGER.info(f"API response: {req}")
         
-        # Check for successful response (EXACTLY like anasty17)
-        if "Status" not in req:
-            raise Exception("File not found!")
+        # Check for successful response (FIXED FOR ACTUAL API)
+        if "✅ Status" in req and req["✅ Status"] == "Success":
+            # New API format with emoji keys
+            extracted_info = req.get("📜 Extracted Info", [])
+        elif "Status" in req and req["Status"] == "Success":
+            # Old API format without emojis
+            extracted_info = req.get("Extracted Info", [])
+        else:
+            # Check for error
+            if "❌ Status" in req and req["❌ Status"] == "Error":
+                error_msg = req.get("📜 Message", "Unknown error")
+                raise Exception(f"API Error: {error_msg}")
+            elif "Status" in req and req["Status"] == "Error":
+                error_msg = req.get("Message", "Unknown error")
+                raise Exception(f"API Error: {error_msg}")
+            else:
+                raise Exception("Invalid API response format")
         
-        if req.get("Status") == "Error":
-            error_msg = req.get("Message", "Unknown error")
-            raise Exception(f"API Error: {error_msg}")
-        
-        # Extract file information (EXACTLY like anasty17)
-        if "Extracted Info" not in req:
-            raise Exception("No file information found in API response")
-        
-        extracted_info = req["Extracted Info"]
         if not extracted_info:
             raise Exception("No files found")
         
-        # Process first file (like anasty17 for single files)
+        # Process first file (FIXED FOR ACTUAL KEYS)
         data = extracted_info[0]
         
+        # Handle both emoji and non-emoji keys
+        filename = data.get("📂 Title") or data.get("Title", "Unknown")
+        size_str = data.get("📏 Size") or data.get("Size", "0 B")
+        download_url = data.get("🔽 Direct Download Link") or data.get("Direct Download Link", "")
+        
         result = {
-            'filename': data["Title"],
-            'size': speed_string_to_bytes(data["Size"].replace(" ", "")),
-            'download_url': data["Direct Download Link"],
+            'filename': filename,
+            'size': speed_string_to_bytes(size_str.replace(" ", "")),
+            'download_url': download_url,
             'type': 'file'
         }
         
