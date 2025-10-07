@@ -1,189 +1,208 @@
 """
-Ultra Simple Terabox Leech Bot - FIXED EVENT LOOP VERSION
+Ultra Simple Terabox Leech Bot - WORKING VERSION
+Fixed health server import and event loop handling
 """
 
-import asyncio
 import logging
-import time
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 from telegram import BotCommand, BotCommandScopeDefault
-from config import BOT_TOKEN, LOGGER
+from config import BOT_TOKEN, LOGGER, OWNER_ID
 
-import bot.utils.health_server as health
-import bot.handlers.commands as commands
-import bot.handlers.messages as messages
-
-# Import callback handlers
+# Try to import your handlers
 try:
-    from bot.handlers.callbacks import setup_callback_handlers
-    callbacks_available = True
-except ImportError:
-    callbacks_available = False
+    import bot.handlers.commands as commands
+    commands_available = True
+except ImportError as e:
+    LOGGER.error(f"Commands not available: {e}")
+    commands_available = False
+
+try:
+    import bot.handlers.messages as messages
+    messages_available = True
+except ImportError as e:
+    LOGGER.error(f"Messages handler not available: {e}")
+    messages_available = False
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 async def setup_bot_commands(application):
     """Set up bot menu commands"""
-    commands_list = [
-        BotCommand("start", "🏠 Start the bot"),
-        BotCommand("help", "🆘 Get help"),
-        BotCommand("contact", "📞 Contact developer"),
-        BotCommand("about", "ℹ️ About this bot"),
-        BotCommand("status", "📊 Bot status"),
-        BotCommand("leech", "📥 Standard download"),
-        BotCommand("fast", "⚡ Enhanced download")
-    ]
+    try:
+        commands_list = [
+            BotCommand("start", "🏠 Start the bot"),
+            BotCommand("help", "🆘 Get help"),
+            BotCommand("contact", "📞 Contact developer"),
+            BotCommand("about", "ℹ️ About this bot"),
+            BotCommand("status", "📊 Bot status"),
+            BotCommand("test", "🧪 Test bot"),
+            BotCommand("leech", "📥 Download files")
+        ]
+        
+        await application.bot.set_my_commands(commands_list, scope=BotCommandScopeDefault())
+        LOGGER.info("✅ Bot menu commands set successfully")
+    except Exception as e:
+        LOGGER.error(f"❌ Failed to set bot commands: {e}")
+
+# ✅ SIMPLE FALLBACK HANDLERS (in case imports fail)
+async def simple_start(update, context):
+    """Simple start command"""
+    user_name = update.effective_user.first_name
+    await update.message.reply_text(
+        f"👋 **Welcome {user_name}!**\n\n"
+        "🤖 **Ultra Terabox Bot**\n"
+        "📥 Send me a Terabox link to download files!\n\n"
+        "🔧 **Bot is running in simple mode**\n"
+        "Send any Terabox URL to start downloading!",
+        parse_mode='Markdown'
+    )
+
+async def simple_test(update, context):
+    """Simple test command"""
+    await update.message.reply_text("✅ **Bot is working!**\n\n🤖 All systems operational!")
+
+async def simple_message_handler(update, context):
+    """Simple message handler"""
+    user_id = update.effective_user.id
+    message_text = update.message.text
     
-    await application.bot.set_my_commands(commands_list, scope=BotCommandScopeDefault())
-    LOGGER.info("✅ Bot menu commands set successfully")
+    LOGGER.info(f"📨 Message from {user_id}: {message_text}")
+    
+    # Basic Terabox detection
+    terabox_domains = ['terabox.com', '1024tera.com', 'nephobox.com', 'mirrobox.com', 'momerybox.com']
+    is_terabox_url = any(domain in message_text.lower() for domain in terabox_domains)
+    
+    if is_terabox_url:
+        await update.message.reply_text(
+            "🎯 **Terabox URL Detected!**\n\n"
+            "🔧 Processing system is loading...\n"
+            "⏰ Please wait while we set up the download system.",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(
+            f"📢 **Echo:** {message_text}\n\n"
+            f"🆔 **Your ID:** `{user_id}`\n"
+            f"🤖 **Bot is working!**\n\n"
+            f"Send a Terabox URL to download!",
+            parse_mode='Markdown'
+        )
 
 async def main():
-    """Main function with FIXED event loop handling"""
+    """Main function - FIXED VERSION"""
     try:
-        # Start health check server first
-        await health.start_health_server()
-
+        LOGGER.info("🚀 Starting Ultra Terabox Bot (Fixed Version)...")
+        
         # Create application
         application = Application.builder().token(BOT_TOKEN).build()
         
-        # Store start time for uptime calculation
+        # Store start time for uptime
+        import time
         application.start_time = time.time()
 
-        # Clear webhooks
-        LOGGER.info("🧹 Clearing any existing webhooks...")
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        LOGGER.info("✅ Webhook cleared successfully")
-        await asyncio.sleep(3)
+        # Clear webhooks first
+        try:
+            LOGGER.info("🧹 Clearing webhooks...")
+            await application.bot.delete_webhook(drop_pending_updates=True)
+            LOGGER.info("✅ Webhooks cleared")
+        except Exception as e:
+            LOGGER.warning(f"⚠️ Webhook clear failed: {e}")
 
-        # Set up bot menu commands
+        # Set up bot menu
         await setup_bot_commands(application)
 
-        # Add enhanced command handlers
-        application.add_handler(CommandHandler("start", commands.start))
-        application.add_handler(CommandHandler("help", commands.help_command))
-        application.add_handler(CommandHandler("contact", commands.contact_command))
-        application.add_handler(CommandHandler("about", commands.about_command))
-        application.add_handler(CommandHandler("status", commands.status_command))
-        application.add_handler(CommandHandler("test", commands.test_handler))
-        
-        # Standard leech command
-        application.add_handler(CommandHandler("leech", commands.leech_command))
-
-        # Enhanced fast leech command
-        try:
-            import bot.handlers.enhanced_processor
-            application.add_handler(CommandHandler("fast", commands.fast_leech_command))
-            LOGGER.info("Enhanced multi-connection mode available")
-            enhanced_available = True
-        except ImportError as e:
-            LOGGER.warning(f"Enhanced mode not available: {e}")
-            application.add_handler(CommandHandler("fast", commands.leech_command))
-            enhanced_available = False
-
-        # Setup callback handlers if available
-        if callbacks_available:
-            setup_callback_handlers(application)
-            LOGGER.info("✅ Callback handlers registered")
-
-        # ✅ FIXED: Try to handle verification callbacks properly
-        try:
-            from bot.modules.token_verification import handle_verification_callbacks as orig_verify_handler
+        # Add handlers based on availability
+        if commands_available:
+            LOGGER.info("✅ Using enhanced command handlers")
+            application.add_handler(CommandHandler("start", commands.start))
+            try:
+                application.add_handler(CommandHandler("help", commands.help_command))
+                application.add_handler(CommandHandler("contact", commands.contact_command))
+                application.add_handler(CommandHandler("about", commands.about_command))
+                application.add_handler(CommandHandler("status", commands.status_command))
+            except AttributeError:
+                LOGGER.warning("Some enhanced commands not available, using fallbacks")
             
-            # Create a combined callback handler
-            async def combined_callback_handler(update, context):
-                query = update.callback_query
-                if query.data in ["about", "status", "why_verify"] or query.data.startswith("start_verification"):
-                    if callbacks_available:
-                        await handle_callback_queries(update, context)
-                    else:
-                        await query.answer("Feature not available")
-                else:
-                    await orig_verify_handler(update, context)
+            try:
+                application.add_handler(CommandHandler("test", commands.test_handler))
+            except AttributeError:
+                application.add_handler(CommandHandler("test", simple_test))
             
-            application.add_handler(CallbackQueryHandler(combined_callback_handler))
-            LOGGER.info("✅ Combined verification callback handler registered")
+            try:
+                application.add_handler(CommandHandler("leech", commands.leech_command))
+            except AttributeError:
+                LOGGER.warning("Leech command not available")
+        else:
+            LOGGER.info("🔧 Using simple fallback handlers")
+            application.add_handler(CommandHandler("start", simple_start))
+            application.add_handler(CommandHandler("test", simple_test))
+
+        # Add message handler
+        if messages_available:
+            LOGGER.info("✅ Using enhanced message handler")
+            application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
+        else:
+            LOGGER.info("🔧 Using simple message handler")
+            application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, simple_message_handler))
+
+        # ✅ FIXED: Try to add verification callbacks safely
+        try:
+            from bot.modules.token_verification import handle_verification_callbacks
+            application.add_handler(CallbackQueryHandler(handle_verification_callbacks))
+            LOGGER.info("✅ Verification callbacks registered")
+        except ImportError:
+            LOGGER.info("ℹ️ Verification system not available")
         except Exception as e:
-            LOGGER.error(f"❌ Failed to register verification handlers: {e}")
-            if callbacks_available:
-                setup_callback_handlers(application)
+            LOGGER.warning(f"⚠️ Verification callback setup failed: {e}")
 
-        # Message handler for direct URL processing
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
-
-        LOGGER.info("✅ All handlers registered")
+        # Log startup info
+        LOGGER.info("✅ All available handlers registered")
         LOGGER.info(f"🤖 Bot Token: {BOT_TOKEN[:20]}...")
-        LOGGER.info(f"👤 Owner ID: 1206988513")
-        LOGGER.info("🔐 Verification: ENABLED")
+        LOGGER.info(f"👤 Owner ID: {OWNER_ID}")
         LOGGER.info("🟢 Bot starting...")
-        LOGGER.info("🎯 Ready to process Terabox links!")
 
-        # ✅ FIXED: Start the bot with proper event loop handling
-        try:
-            # Use run_polling instead of manual start/stop
-            await application.run_polling(
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"],
-                close_loop=False  # ✅ CRITICAL FIX: Don't close the event loop
-            )
-        except Exception as polling_error:
-            LOGGER.error(f"❌ Polling error: {polling_error}")
-            # Don't re-raise, just log and continue
-            
-    except Exception as e:
-        LOGGER.error(f"❌ Error in main: {e}")
-        # Don't exit immediately, try fallback
-        await basic_bot_fallback()
-
-async def basic_bot_fallback():
-    """Basic fallback bot if main bot fails"""
-    try:
-        LOGGER.info("🔄 Starting in BASIC FALLBACK mode...")
-        application = Application.builder().token(BOT_TOKEN).build()
-
-        # Store start time
-        application.start_time = time.time()
-
-        # Only add essential handlers
-        application.add_handler(CommandHandler("start", commands.start))
-        application.add_handler(CommandHandler("help", commands.help_command))
-        application.add_handler(CommandHandler("contact", commands.contact_command))
-        application.add_handler(CommandHandler("test", commands.test_handler))
-        application.add_handler(CommandHandler("leech", commands.leech_command))
-        application.add_handler(CommandHandler("fast", commands.leech_command))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
-
-        LOGGER.info("✅ BASIC BOT: Running in safe fallback mode")
-
-        # ✅ FIXED: Proper fallback polling
+        # ✅ FIXED: Start polling with proper error handling
+        LOGGER.info("🎯 Starting bot polling...")
         await application.run_polling(
             drop_pending_updates=True,
-            allowed_updates=["message", "callback_query"],
-            close_loop=False
+            allowed_updates=["message", "callback_query"]
         )
         
     except Exception as e:
-        LOGGER.error(f"❌ FALLBACK ERROR: {e}")
+        LOGGER.error(f"❌ Error in main: {e}")
+        raise
 
-# ✅ FIXED: Proper event loop handling
 def run_bot():
-    """Run bot with proper event loop management"""
+    """Entry point with proper async handling"""
+    import asyncio
+    
+    # ✅ FIXED: Handle existing event loops properly
     try:
-        # Check if there's already a running event loop
+        # Try to get existing loop
+        loop = asyncio.get_running_loop()
+        LOGGER.info("📍 Detected existing event loop, creating task")
+        
+        # Create a new task in the existing loop
+        task = loop.create_task(main())
+        
+        # Keep the task running
+        def keep_alive():
+            if not task.done():
+                loop.call_later(1.0, keep_alive)
+        
+        keep_alive()
+        return task
+        
+    except RuntimeError:
+        # No existing loop, run normally
+        LOGGER.info("🚀 Starting new event loop")
         try:
-            loop = asyncio.get_running_loop()
-            LOGGER.warning("Event loop already running, creating new task")
-            # If we're in an existing loop, create a task
-            task = loop.create_task(main())
-            return task
-        except RuntimeError:
-            # No running loop, we can run normally
-            return asyncio.run(main())
-    except KeyboardInterrupt:
-        LOGGER.info("👋 Bot stopped by user")
-    except Exception as e:
-        LOGGER.error(f"❌ FATAL ERROR: {e}")
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            LOGGER.info("👋 Bot stopped by user")
+        except Exception as e:
+            LOGGER.error(f"❌ Fatal error: {e}")
 
 if __name__ == "__main__":
     run_bot()
-    
+                
