@@ -1,25 +1,38 @@
-from aiohttp import web
+"""
+Health Server for Bot
+"""
+
 import asyncio
 import logging
-import os
+from aiohttp import web
 
-logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 async def health_check(request):
-    return web.Response(text="OK", status=200)
+    """Health check endpoint"""
+    return web.json_response({
+        "status": "healthy",
+        "service": "ultra-terabox-bot",
+        "timestamp": str(asyncio.get_event_loop().time())
+    })
 
-async def status_check(request):
-    return web.json_response({"status": "running", "bot": "Ultra Terabox Bot"})
-
-if __name__ == "__main__":
-    app = web.Application()
-    app.router.add_get('/', health_check)
-    app.router.add_get('/health', health_check)
-    app.router.add_get('/status', status_check)
-    
-    port = int(os.environ.get('PORT', 8000))
-    LOGGER.info(f"Starting health server on port {port}")
-    
-    web.run_app(app, host='0.0.0.0', port=port)
-    
+async def start_health_server():
+    """Start health check server"""
+    try:
+        app = web.Application()
+        app.router.add_get('/health', health_check)
+        app.router.add_get('/', health_check)
+        
+        # Start server on port 8000
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8000)
+        await site.start()
+        
+        LOGGER.info("✅ Health server started on port 8000")
+        return runner
+        
+    except Exception as e:
+        LOGGER.error(f"❌ Health server failed: {e}")
+        return None
+        
