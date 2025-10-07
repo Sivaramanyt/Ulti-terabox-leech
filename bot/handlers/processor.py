@@ -1,5 +1,5 @@
 """
-PURE PYTHON PROCESSOR - No external tools needed, works with current Dockerfile
+DOWNLOAD-FOCUSED PROCESSOR - API unchanged, only download method enhanced
 """
 
 import os
@@ -11,7 +11,7 @@ from urllib.parse import quote
 from telegram import Update
 from config import LOGGER, DOWNLOAD_DIR
 
-# ✅ ALL YOUR FUNCTIONS - EXACTLY PRESERVED
+# ✅ ALL YOUR FUNCTIONS - EXACTLY PRESERVED (API working fine)
 def speed_string_to_bytes(size_str):
     """Convert size string to bytes"""
     size_str = size_str.replace(" ", "").upper()
@@ -30,7 +30,7 @@ def speed_string_to_bytes(size_str):
             return 0
 
 def extract_terabox_info(url):
-    """Extract file info using wdzone-terabox-api"""
+    """Extract file info using wdzone-terabox-api - WORKING PERFECTLY"""
     try:
         print(f"🔍 Processing URL: {url}")
         LOGGER.info(f"Processing URL: {url}")
@@ -95,99 +95,92 @@ def format_size(bytes_size):
         bytes_size /= 1024
     return f"{bytes_size:.1f} TB"
 
-# ✅ ENHANCED PURE PYTHON DOWNLOAD - Works with current setup
-async def download_with_python_session(download_url, file_path, filename, status_msg, total_size, max_retries=3):
-    """Enhanced Python-only download with session persistence and retry logic"""
+# 🎯 NEW: CHUNKED RANGE DOWNLOAD - For servers that drop connections
+async def download_with_range_requests(download_url, file_path, filename, status_msg, total_size, max_retries=3):
+    """Download using range requests to avoid connection drops"""
+    
+    # ✅ Strategy: Download in chunks using HTTP Range requests
+    chunk_size = 1024 * 1024  # 1MB chunks (smaller to avoid timeouts)
     
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"🐍 Python download attempt {attempt}/{max_retries} for {filename}")
+            print(f"📡 Range download attempt {attempt}/{max_retries} for {filename}")
             
-            # ✅ Create persistent session with better settings
+            # ✅ Create session with minimal headers
             session = requests.Session()
-            
-            # ✅ Enhanced headers for better compatibility
             session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Cache-Control': 'no-cache'
+                'Connection': 'keep-alive'
             })
-            
-            # ✅ Enhanced adapter with connection pooling
-            from requests.adapters import HTTPAdapter
-            from urllib3.util.retry import Retry
-            
-            # Configure retry strategy
-            retry_strategy = Retry(
-                total=0,  # We handle retries manually
-                status_forcelist=[429, 500, 502, 503, 504],
-                backoff_factor=1
-            )
-            
-            adapter = HTTPAdapter(
-                max_retries=retry_strategy,
-                pool_connections=10,
-                pool_maxsize=10
-            )
-            
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-            
-            # ✅ Start streaming download
-            response = session.get(
-                download_url, 
-                stream=True, 
-                timeout=(30, 300),  # (connect, read) timeouts
-                allow_redirects=True
-            )
-            response.raise_for_status()
             
             downloaded = 0
             start_time = time.time()
-            last_update = 0
             
-            print(f"📥 Downloading {filename}, size: {total_size}")
+            print(f"📥 Starting chunked download: {filename}, size: {total_size}")
             
             with open(file_path, 'wb') as f:
-                # ✅ Use your preferred 8KB chunks
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
+                while downloaded < total_size:
+                    # Calculate range for this chunk
+                    start_byte = downloaded
+                    end_byte = min(downloaded + chunk_size - 1, total_size - 1)
+                    
+                    # ✅ Make range request for this chunk
+                    range_header = f'bytes={start_byte}-{end_byte}'
+                    session.headers['Range'] = range_header
+                    
+                    print(f"📡 Requesting range: {range_header}")
+                    
+                    try:
+                        # Short timeout for each chunk
+                        chunk_response = session.get(
+                            download_url,
+                            timeout=(10, 30),  # 10s connect, 30s read
+                            stream=True
+                        )
                         
-                        # ✅ Update every 1MB as per your preference
-                        if downloaded - last_update >= 1024 * 1024:  # 1MB intervals
-                            elapsed_time = time.time() - start_time
-                            speed = downloaded / elapsed_time if elapsed_time > 0 else 0
-                            progress = (downloaded / total_size) * 100 if total_size > 0 else 0
-                            
-                            try:
-                                await status_msg.edit_text(
-                                    f"🐍 **Python Downloading**\n"
-                                    f"📁 **{filename}**\n"
-                                    f"⬇️ **Progress:** {progress:.1f}%\n"
-                                    f"📊 **{format_size(downloaded)} / {format_size(total_size)}**\n"
-                                    f"🚀 **Speed:** {format_size(speed)}/s\n"
-                                    f"🔄 **Attempt:** {attempt}/{max_retries}",
-                                    parse_mode='Markdown'
-                                )
-                                last_update = downloaded
-                            except:
-                                pass  # Ignore telegram rate limits
+                        if chunk_response.status_code not in [206, 200]:  # 206 = Partial Content
+                            print(f"❌ Range request failed: {chunk_response.status_code}")
+                            raise Exception(f"Range request failed: {chunk_response.status_code}")
+                        
+                        # Write chunk data
+                        chunk_data = chunk_response.content
+                        f.write(chunk_data)
+                        downloaded += len(chunk_data)
+                        
+                        # ✅ Update progress
+                        elapsed_time = time.time() - start_time
+                        speed = downloaded / elapsed_time if elapsed_time > 0 else 0
+                        progress = (downloaded / total_size) * 100
+                        
+                        try:
+                            await status_msg.edit_text(
+                                f"📡 **Range Download**\n"
+                                f"📁 **{filename}**\n"
+                                f"⬇️ **Progress:** {progress:.1f}%\n"
+                                f"📊 **{format_size(downloaded)} / {format_size(total_size)}**\n"
+                                f"🚀 **Speed:** {format_size(speed)}/s\n"
+                                f"🔄 **Attempt:** {attempt}/{max_retries}\n"
+                                f"📡 **Chunk:** {format_size(len(chunk_data))}",
+                                parse_mode='Markdown'
+                            )
+                        except:
+                            pass
+                        
+                        print(f"✅ Downloaded chunk: {len(chunk_data)} bytes ({progress:.1f}%)")
+                        
+                    except Exception as chunk_error:
+                        print(f"❌ Chunk download failed: {chunk_error}")
+                        raise chunk_error
             
             session.close()
-            print(f"✅ Python download attempt {attempt} successful! Downloaded {downloaded} bytes")
+            print(f"✅ Range download attempt {attempt} successful! Downloaded {downloaded} bytes")
             return True
             
         except Exception as e:
             error_msg = str(e)
-            print(f"❌ Python download attempt {attempt} failed: {error_msg}")
+            print(f"❌ Range download attempt {attempt} failed: {error_msg}")
             
-            # Clean up
             try:
                 session.close()
             except:
@@ -200,13 +193,13 @@ async def download_with_python_session(download_url, file_path, filename, status
                 pass
             
             if attempt < max_retries:
-                wait_time = attempt * 5  # 5s, 10s, 15s wait
+                wait_time = attempt * 2  # 2s, 4s, 6s
                 print(f"⏳ Waiting {wait_time}s before retry...")
                 
                 try:
                     await status_msg.edit_text(
-                        f"⚠️ **Download failed (Attempt {attempt})**\n\n"
-                        f"**Error:** Connection issue\n"
+                        f"⚠️ **Range download failed (Attempt {attempt})**\n\n"
+                        f"**Error:** {error_msg[:50]}...\n"
                         f"🔄 **Retrying in {wait_time}s...**\n"
                         f"📊 **Next attempt:** {attempt + 1}/{max_retries}",
                         parse_mode='Markdown'
@@ -216,17 +209,77 @@ async def download_with_python_session(download_url, file_path, filename, status
                 
                 await asyncio.sleep(wait_time)
             else:
-                raise Exception(f"Download failed after {max_retries} attempts: {error_msg}")
+                raise Exception(f"Range download failed after {max_retries} attempts: {error_msg}")
+
+# 🔧 FALLBACK: Simple download with very short chunks
+async def download_with_micro_chunks(download_url, file_path, filename, status_msg, total_size):
+    """Fallback: Download with very small chunks to avoid connection drops"""
+    
+    try:
+        print(f"🔬 Micro-chunk download for {filename}")
+        
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'curl/7.68.0',  # Minimal user agent
+            'Accept': '*/*'
+        })
+        
+        response = session.get(
+            download_url,
+            stream=True,
+            timeout=(5, 60)  # Very short timeouts
+        )
+        response.raise_for_status()
+        
+        downloaded = 0
+        start_time = time.time()
+        
+        with open(file_path, 'wb') as f:
+            # Use very small 1KB chunks
+            for chunk in response.iter_content(chunk_size=1024):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    # Update every 100KB
+                    if downloaded % (100 * 1024) == 0:
+                        elapsed_time = time.time() - start_time
+                        speed = downloaded / elapsed_time if elapsed_time > 0 else 0
+                        progress = (downloaded / total_size) * 100 if total_size > 0 else 0
+                        
+                        try:
+                            await status_msg.edit_text(
+                                f"🔬 **Micro-chunk Download**\n"
+                                f"📁 **{filename}**\n"
+                                f"⬇️ **Progress:** {progress:.1f}%\n"
+                                f"📊 **{format_size(downloaded)} / {format_size(total_size)}**\n"
+                                f"🚀 **Speed:** {format_size(speed)}/s",
+                                parse_mode='Markdown'
+                            )
+                        except:
+                            pass
+        
+        session.close()
+        print(f"✅ Micro-chunk download successful! Downloaded {downloaded} bytes")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Micro-chunk download failed: {e}")
+        try:
+            session.close()
+        except:
+            pass
+        raise e
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL with pure Python download"""
+    """Process Terabox URL with enhanced download methods"""
     print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
     status_msg = await update.message.reply_text("🔍 **Processing Terabox URL...**", parse_mode='Markdown')
 
     try:
-        # Step 1: Extract file info (EXACTLY YOUR CODE)
+        # Step 1: Extract file info (WORKING PERFECTLY - NO CHANGES)
         print(f"📋 Step 1: Using wdzone-terabox-api...")
         await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
         
@@ -250,16 +303,38 @@ async def process_terabox_url(update: Update, url: str):
             return
 
         await status_msg.edit_text(
-            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n🐍 **Python download engine...**",
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n📡 **Range download mode...**",
             parse_mode='Markdown'
         )
 
-        # Step 3: ENHANCED PYTHON DOWNLOAD
-        print(f"🐍 Step 3: Python download...")
+        # Step 3: ENHANCED DOWNLOAD - Multiple strategies
+        print(f"📡 Step 3: Enhanced download...")
         file_path = Path(DOWNLOAD_DIR) / filename
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         
-        await download_with_python_session(download_url, file_path, filename, status_msg, file_size)
+        download_success = False
+        
+        # ✅ Method 1: Try range requests first
+        try:
+            await download_with_range_requests(download_url, file_path, filename, status_msg, file_size)
+            download_success = True
+            print(f"✅ Range download successful")
+        except Exception as e:
+            print(f"❌ Range download failed: {e}")
+            
+            # ✅ Method 2: Try micro-chunks as fallback
+            try:
+                await download_with_micro_chunks(download_url, file_path, filename, status_msg, file_size)
+                download_success = True
+                print(f"✅ Micro-chunk download successful")
+            except Exception as e2:
+                print(f"❌ Micro-chunk download also failed: {e2}")
+                raise Exception(f"All download methods failed. Range: {str(e)}, Micro: {str(e2)}")
+
+        if not download_success:
+            await status_msg.edit_text("❌ **All download methods failed**", parse_mode='Markdown')
+            return
+
         print(f"✅ Step 3 complete: File downloaded successfully")
 
         # Step 4: Upload to Telegram (EXACTLY YOUR CODE)
@@ -267,7 +342,7 @@ async def process_terabox_url(update: Update, url: str):
         await status_msg.edit_text("📤 **Uploading to Telegram...**", parse_mode='Markdown')
 
         try:
-            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🐍 Downloaded with Python"
+            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n📡 Range download success"
             
             with open(file_path, 'rb') as file:
                 if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.webm', '.m4v', '.3gp', '.ts')):
