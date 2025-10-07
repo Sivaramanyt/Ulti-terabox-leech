@@ -1,11 +1,14 @@
 """
-WORKING PROCESSOR - Micro-chunk only (Range requests removed)
+ENHANCED PROCESSOR.PY - Micro-chunk Download + Enhanced Video Upload
+Keeps all working download code + Adds original video resolution & thumbnails
 """
 
 import os
 import requests
 import asyncio
 import time
+import subprocess
+import json
 from pathlib import Path
 from urllib.parse import quote
 from telegram import Update
@@ -29,7 +32,7 @@ def speed_string_to_bytes(size_str):
             return 0
 
 def extract_terabox_info(url):
-    """Extract file info using wdzone-terabox-api"""
+    """Extract file info using wdzone-terabox-api - WORKING PERFECTLY"""
     try:
         print(f"🔍 Processing URL: {url}")
         LOGGER.info(f"Processing URL: {url}")
@@ -90,7 +93,58 @@ def format_size(bytes_size):
         bytes_size /= 1024
     return f"{bytes_size:.1f} TB"
 
-# ✅ WORKING DOWNLOAD METHOD - Micro-chunks only
+# ✅ NEW: Enhanced Video Processing Functions
+def get_video_info(video_path):
+    """Get video information using ffprobe (if available) or basic fallback"""
+    try:
+        # Try ffprobe first (best option)
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json',
+            '-show_format', '-show_streams', str(video_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    width = stream.get('width', 1280)
+                    height = stream.get('height', 720)
+                    duration = float(stream.get('duration', 0))
+                    print(f"📐 Video detected: {width}x{height}, duration: {duration}s")
+                    return width, height, duration
+    except Exception as e:
+        print(f"⚠️ ffprobe failed: {e}")
+    
+    # Fallback to HD default values
+    print(f"📐 Using default HD resolution: 1280x720")
+    return 1280, 720, 0
+
+def generate_video_thumbnail(video_path):
+    """Generate thumbnail from video using ffmpeg (if available)"""
+    try:
+        thumbnail_path = video_path.with_suffix('.jpg')
+        
+        # Try ffmpeg thumbnail generation
+        cmd = [
+            'ffmpeg', '-i', str(video_path), '-ss', '00:00:01',
+            '-vframes', '1', '-q:v', '2', str(thumbnail_path), '-y'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        
+        if result.returncode == 0 and thumbnail_path.exists():
+            print(f"🖼️ Thumbnail generated: {thumbnail_path}")
+            return thumbnail_path
+        else:
+            print(f"⚠️ ffmpeg thumbnail failed")
+    except Exception as e:
+        print(f"⚠️ Thumbnail generation error: {e}")
+    
+    return None
+
+# ✅ WORKING DOWNLOAD METHOD - Micro-chunks only (PRESERVED EXACTLY)
 async def download_with_micro_chunks_only(download_url, file_path, filename, status_msg, total_size):
     """Download with micro-chunks - PROVEN TO WORK"""
     
@@ -153,14 +207,14 @@ async def download_with_micro_chunks_only(download_url, file_path, filename, sta
         raise e
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL with micro-chunk download only"""
-    print(f"🎯 Starting Terabox processing: {url}")
-    LOGGER.info(f"Starting Terabox processing: {url}")
+    """Process Terabox URL with micro-chunk download + enhanced video upload"""
+    print(f"🎯 Starting enhanced Terabox processing: {url}")
+    LOGGER.info(f"Starting enhanced Terabox processing: {url}")
     
     status_msg = await update.message.reply_text("🔍 **Processing Terabox URL...**", parse_mode='Markdown')
 
     try:
-        # Step 1: Extract file info (WORKING PERFECTLY)
+        # Step 1: Extract file info (WORKING PERFECTLY - NO CHANGES)
         await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
         
         file_info = extract_terabox_info(url)
@@ -187,7 +241,7 @@ async def process_terabox_url(update: Update, url: str):
             parse_mode='Markdown'
         )
 
-        # Step 3: WORKING DOWNLOAD METHOD
+        # Step 3: WORKING DOWNLOAD METHOD (PRESERVED EXACTLY)
         print(f"🔬 Step 3: Micro-chunk download...")
         file_path = Path(DOWNLOAD_DIR) / filename
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -195,41 +249,81 @@ async def process_terabox_url(update: Update, url: str):
         await download_with_micro_chunks_only(download_url, file_path, filename, status_msg, file_size)
         print(f"✅ Step 3 complete: File downloaded successfully")
 
-        # Step 4: Upload to Telegram
-        print(f"📤 Step 4: Uploading to Telegram...")
-        await status_msg.edit_text("📤 **Uploading to Telegram...**", parse_mode='Markdown')
+        # Step 4: ENHANCED UPLOAD TO TELEGRAM
+        print(f"📤 Step 4: Enhanced uploading to Telegram...")
+        await status_msg.edit_text("📤 **Enhanced uploading to Telegram...**", parse_mode='Markdown')
 
         try:
             caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🔬 Micro-chunk success"
             
             with open(file_path, 'rb') as file:
                 if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.webm', '.m4v', '.3gp', '.ts')):
+                    # ✅ ENHANCED VIDEO UPLOAD
+                    print(f"🎬 Uploading as enhanced video...")
+                    
+                    # Get actual video dimensions and duration
+                    width, height, duration = get_video_info(file_path)
+                    
+                    # Generate thumbnail
+                    thumbnail_path = generate_video_thumbnail(file_path)
+                    thumbnail_data = None
+                    
+                    if thumbnail_path and thumbnail_path.exists():
+                        try:
+                            with open(thumbnail_path, 'rb') as thumb_file:
+                                thumbnail_data = thumb_file.read()
+                            print(f"🖼️ Thumbnail loaded: {len(thumbnail_data)} bytes")
+                            # Clean up thumbnail file
+                            thumbnail_path.unlink(missing_ok=True)
+                        except Exception as thumb_error:
+                            print(f"⚠️ Thumbnail load failed: {thumb_error}")
+                            thumbnail_data = None
+                    
+                    # Upload with enhanced parameters
                     await update.message.reply_video(
                         video=file,
                         caption=caption,
-                        width=640,
-                        height=480,
-                        duration=0,
+                        width=width,           # ✅ Actual video width
+                        height=height,         # ✅ Actual video height  
+                        duration=int(duration) if duration > 0 else None,  # ✅ Actual duration
+                        thumbnail=thumbnail_data,  # ✅ Generated thumbnail
                         supports_streaming=True,
-                        has_spoiler=False
+                        has_spoiler=False,
+                        parse_mode='Markdown'
                     )
+                    print(f"🎬 Enhanced video upload complete: {width}x{height}")
+                    
                 elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')):
+                    # ✅ ENHANCED IMAGE UPLOAD
                     caption = caption.replace('🎥', '🖼️')
-                    await update.message.reply_photo(photo=file, caption=caption, has_spoiler=False)
+                    await update.message.reply_photo(
+                        photo=file, 
+                        caption=caption, 
+                        has_spoiler=False,
+                        parse_mode='Markdown'
+                    )
+                    print(f"🖼️ Enhanced image upload complete")
                 else:
+                    # ✅ ENHANCED DOCUMENT UPLOAD  
                     caption = caption.replace('🎥', '📁')
-                    await update.message.reply_document(document=file, caption=caption)
+                    await update.message.reply_document(
+                        document=file, 
+                        caption=caption,
+                        parse_mode='Markdown'
+                    )
+                    print(f"📁 Enhanced document upload complete")
 
         except Exception as upload_error:
             print(f"❌ Upload error: {upload_error}")
             await status_msg.edit_text(f"❌ **Upload failed:** {str(upload_error)}", parse_mode='Markdown')
             return
 
-        print(f"✅ Step 4 complete: File uploaded successfully")
+        print(f"✅ Step 4 complete: Enhanced upload successful")
 
         # Step 5: Cleanup
         try:
             file_path.unlink(missing_ok=True)
+            print(f"🧹 Cleanup: File deleted")
         except:
             pass
 
@@ -238,8 +332,8 @@ async def process_terabox_url(update: Update, url: str):
         except:
             pass
 
-        print(f"🎉 Process complete: {filename} successfully processed!")
-        LOGGER.info(f"Successfully processed: {filename}")
+        print(f"🎉 Process complete: {filename} successfully processed with enhancements!")
+        LOGGER.info(f"Successfully processed: {filename} with enhanced upload")
 
     except Exception as e:
         error_msg = str(e)
