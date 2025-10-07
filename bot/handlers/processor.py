@@ -1,12 +1,13 @@
 """
-Ultra Terabox Processor - Based on WORKING wdzone-terabox-api
-Enhanced with filename cleaning + better error handling
+Ultra Terabox Processor - FIXED DOWNLOAD SYSTEM
+Enhanced with bulletproof download retry logic
 """
 
 import os
 import requests
 import aiohttp
 import aiofiles
+import asyncio
 from pathlib import Path
 from urllib.parse import quote
 from telegram import Update
@@ -75,7 +76,6 @@ def clean_filename(filename):
 def extract_terabox_info(url):
     """Extract file info using wdzone-terabox-api - PROVEN WORKING"""
     try:
-        print(f"🔍 Processing URL: {url}")
         LOGGER.info(f"Processing URL: {url}")
         
         apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
@@ -83,7 +83,6 @@ def extract_terabox_info(url):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0'
         }
         
-        print(f"🌐 API URL: {apiurl}")
         LOGGER.info(f"Making API request to: {apiurl}")
         
         response = requests.get(apiurl, headers=headers, timeout=30)
@@ -91,7 +90,6 @@ def extract_terabox_info(url):
             raise Exception(f"API request failed with status: {response.status_code}")
         
         req = response.json()
-        print(f"📄 API Response: {req}")
         LOGGER.info(f"API response: {req}")
         
         extracted_info = None
@@ -124,14 +122,109 @@ def extract_terabox_info(url):
             'type': 'file'
         }
         
-        print(f"✅ File info extracted: {result}")
         LOGGER.info(f"File extracted: {result}")
         return result
         
     except Exception as e:
-        print(f"❌ Terabox extraction error: {e}")
         LOGGER.error(f"Terabox extraction error: {e}")
         raise Exception(f"Failed to process Terabox link: {str(e)}")
+
+async def download_file_with_retry(download_url, filename, status_msg=None):
+    """ENHANCED download with multiple retry strategies"""
+    if not download_url:
+        return None
+    
+    file_path = Path(DOWNLOAD_DIR) / filename
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    
+    # Multiple download strategies
+    strategies = [
+        {"chunk_size": 8192, "timeout": 60},      # Fast small chunks
+        {"chunk_size": 1024, "timeout": 120},     # Slower small chunks  
+        {"chunk_size": 4096, "timeout": 180},     # Medium chunks, longer timeout
+    ]
+    
+    for strategy_num, strategy in enumerate(strategies, 1):
+        try:
+            LOGGER.info(f"🔄 Download strategy {strategy_num}: chunk_size={strategy['chunk_size']}, timeout={strategy['timeout']}")
+            
+            timeout = aiohttp.ClientTimeout(
+                total=strategy["timeout"],
+                connect=30,
+                sock_read=strategy["timeout"]//2
+            )
+            
+            connector = aiohttp.TCPConnector(
+                limit=5,
+                limit_per_host=2,
+                ttl_dns_cache=300,
+                keepalive_timeout=60,
+                enable_cleanup_closed=True
+            )
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            }
+            
+            async with aiohttp.ClientSession(
+                connector=connector, 
+                timeout=timeout,
+                headers=headers
+            ) as session:
+                
+                LOGGER.info(f"📥 Starting download with strategy {strategy_num}")
+                
+                async with session.get(download_url, allow_redirects=True) as response:
+                    if response.status != 200:
+                        LOGGER.warning(f"Strategy {strategy_num} failed: HTTP {response.status}")
+                        continue
+                    
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+                    last_update = 0
+                    
+                    LOGGER.info(f"📊 Total size: {total_size}, using {strategy['chunk_size']} byte chunks")
+                    
+                    async with aiofiles.open(file_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(strategy["chunk_size"]):
+                            if chunk:
+                                await f.write(chunk)
+                                downloaded += len(chunk)
+                                
+                                # Update progress every 1MB or every 10 seconds
+                                if downloaded - last_update >= 1024 * 1024:
+                                    progress = (downloaded / total_size) * 100 if total_size > 0 else 0
+                                    try:
+                                        if status_msg:
+                                            await status_msg.edit_text(
+                                                f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**\n🔄 **Strategy:** {strategy_num}/3",
+                                                parse_mode='Markdown'
+                                            )
+                                    except:
+                                        pass  # Ignore rate limits
+                                    last_update = downloaded
+                    
+                    LOGGER.info(f"✅ Download completed with strategy {strategy_num}: {filename}")
+                    return file_path
+                    
+        except asyncio.TimeoutError:
+            LOGGER.warning(f"⏰ Strategy {strategy_num} timeout")
+        except aiohttp.ClientPayloadError as e:
+            LOGGER.warning(f"📡 Strategy {strategy_num} payload error: {str(e)}")
+        except Exception as e:
+            LOGGER.warning(f"❌ Strategy {strategy_num} failed: {str(e)}")
+        
+        # Wait before trying next strategy
+        if strategy_num < len(strategies):
+            wait_time = strategy_num * 2
+            LOGGER.info(f"⏳ Waiting {wait_time}s before trying strategy {strategy_num + 1}")
+            await asyncio.sleep(wait_time)
+    
+    LOGGER.error("❌ All download strategies failed")
+    return None
 
 def format_size(bytes_size):
     """Format file size"""
@@ -142,15 +235,14 @@ def format_size(bytes_size):
     return f"{bytes_size:.1f} TB"
 
 async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process Terabox URL - ENHANCED WORKING VERSION"""
+    """Process Terabox URL - ENHANCED WITH BULLETPROOF DOWNLOAD"""
     message = update.message
     user_id = message.from_user.id
     url = message.text.strip()
     
-    print(f"🎯 Starting Terabox processing: {url}")
     LOGGER.info(f"Starting Terabox processing: {url}")
     
-    # Check user limits (placeholder - implement as needed)
+    # Check user limits
     user_downloads = get_user_download_count(user_id)
     if user_downloads >= FREE_DOWNLOAD_LIMIT and not is_user_verified(user_id):
         await send_verification_required_message(message, user_id, user_downloads)
@@ -160,15 +252,12 @@ async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         # Step 1: Extract file info using WORKING API
-        print(f"📋 Step 1: Using wdzone-terabox-api...")
         await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
         
         file_info = extract_terabox_info(url)
         filename = file_info['filename']
         file_size = file_info['size']
         download_url = file_info['download_url']
-        
-        print(f"✅ Step 1 complete: {filename}, {file_size} bytes")
         
         if not download_url:
             await status_msg.edit_text("❌ **No download URL found**", parse_mode='Markdown')
@@ -177,63 +266,35 @@ async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Step 2: Size check
         if file_size > 2 * 1024 * 1024 * 1024:  # 2GB limit
             await status_msg.edit_text(
-                f"❌ **File too large!**\n\n📊 **Size:** {format_size(file_size)}\n\n**Max allowed:** 2GB for free tier",
+                f"❌ **File too large!**\n\n📊 **Size:** {format_size(file_size)}\n\n**Max allowed:** 2GB",
                 parse_mode='Markdown'
             )
             return
         
         await status_msg.edit_text(
-            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⬇️ **Downloading...**",
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⬇️ **Starting download...**",
             parse_mode='Markdown'
         )
         
-        # Step 3: Download file
-        print(f"⬇️ Step 3: Downloading file...")
-        file_path = Path(DOWNLOAD_DIR) / filename
-        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        # Step 3: ENHANCED Download with retry
+        LOGGER.info(f"⬇️ Starting enhanced download with retry...")
+        file_path = await download_file_with_retry(download_url, filename, status_msg)
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(download_url) as response:
-                if response.status != 200:
-                    await status_msg.edit_text(
-                        f"❌ **Download failed**\n\n**HTTP Status:** {response.status}",
-                        parse_mode='Markdown'
-                    )
-                    return
-                
-                total_size = int(response.headers.get('content-length', file_size))
-                downloaded = 0
-                
-                print(f"📥 Downloading {filename}, size: {total_size}")
-                
-                async with aiofiles.open(file_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(8192):  # 8KB chunks
-                        await f.write(chunk)
-                        downloaded += len(chunk)
-                        
-                        # Update progress every 1MB
-                        if downloaded % (1024 * 1024) == 0:
-                            progress = (downloaded / total_size) * 100 if total_size > 0 else 0
-                            try:
-                                await status_msg.edit_text(
-                                    f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
-                                    parse_mode='Markdown'
-                                )
-                            except:
-                                pass  # Ignore rate limits
+        if not file_path:
+            await status_msg.edit_text(
+                f"❌ **Download Failed**\n\n**File:** `{filename}`\n**Issue:** All download strategies failed\n\n**This can happen due to:**\n• Network connectivity issues\n• Terabox server problems\n• File temporarily unavailable\n\n🔄 **Try again in a few minutes**",
+                parse_mode='Markdown'
+            )
+            return
         
-        print(f"✅ Step 3 complete: File downloaded")
-        
-        # Step 4: Upload to Telegram - ENHANCED WITH BETTER MEDIA HANDLING
-        print(f"📤 Step 4: Uploading to Telegram...")
+        # Step 4: Upload to Telegram
         await status_msg.edit_text("📤 **Uploading to Telegram...**", parse_mode='Markdown')
         
         try:
-            caption = f"📁 **{filename}**\n📊 **Size:** {format_size(file_size)}\n🔗 **Source:** Terabox\n✅ **Enhanced processor with clean filename**"
+            caption = f"📁 **{filename}**\n📊 **Size:** {format_size(file_size)}\n🔗 **Source:** Terabox\n✅ **Downloaded with enhanced retry system**"
             
             with open(file_path, 'rb') as file:
                 if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.webm', '.m4v', '.3gp')):
-                    # ENHANCED VIDEO UPLOAD
                     await message.reply_video(
                         video=file,
                         caption=caption,
@@ -244,14 +305,12 @@ async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE
                         parse_mode='Markdown'
                     )
                 elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')):
-                    # ENHANCED IMAGE UPLOAD
                     await message.reply_photo(
                         photo=file,
                         caption=caption,
                         parse_mode='Markdown'
                     )
                 else:
-                    # ENHANCED DOCUMENT UPLOAD
                     await message.reply_document(
                         document=file,
                         caption=caption,
@@ -259,16 +318,12 @@ async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE
                     )
         
         except Exception as upload_error:
-            print(f"❌ Upload error: {upload_error}")
             await status_msg.edit_text(f"❌ **Upload failed:** {str(upload_error)}", parse_mode='Markdown')
             return
-        
-        print(f"✅ Step 4 complete: File uploaded successfully")
         
         # Step 5: Cleanup
         try:
             file_path.unlink(missing_ok=True)
-            print(f"🧹 Cleanup: File deleted")
         except:
             pass
         
@@ -281,12 +336,10 @@ async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE
         except:
             pass
         
-        print(f"🎉 Process complete: {filename} successfully processed!")
         LOGGER.info(f"Successfully processed: {filename}")
         
     except Exception as e:
         error_msg = str(e)
-        print(f"❌ Process error: {error_msg}")
         LOGGER.error(f"Process error: {error_msg}")
         await status_msg.edit_text(f"❌ **Error:** {error_msg}", parse_mode='Markdown')
 
@@ -316,4 +369,4 @@ async def send_verification_required_message(message, user_id, download_count):
         reply_markup=reply_markup,
         parse_mode='Markdown'
         )
-        
+                   
