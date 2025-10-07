@@ -34,7 +34,9 @@ HEADERS = {
     'Cache-Control': 'no-cache'
 }
 
-async def process_terabox_url_enhanced(update, context: ContextTypes.DEFAULT_TYPE):
+# ✅ Correct (what your handler expects):
+async def process_terabox_url(update, context: ContextTypes.DEFAULT_TYPE):
+    
     """Enhanced Terabox URL processor with robust error handling"""
     message = update.message
     user_id = message.from_user.id
