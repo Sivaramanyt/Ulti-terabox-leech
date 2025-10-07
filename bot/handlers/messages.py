@@ -1,136 +1,176 @@
 """
-Enhanced Message Handlers with FIXED Verification - COMPLETE VERSION
+Enhanced Message Handler with VJ Verification System & Validity Time Display
 """
 
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import *
-import logging
+from bot.utils.token_verification import (
+    generate_verification_link, 
+    check_verification, 
+    verify_user_token,
+    get_user_download_count,
+    increment_user_downloads,
+    get_verification_info,
+    VALIDITY_TIME_TEXT
+)
 
 LOGGER = logging.getLogger(__name__)
 
-async def handle_terabox_with_verification(update: Update, terabox_url: str, user_id: int, context):
-    """Handle Terabox URL with FIXED verification logic"""
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enhanced message handler with verification"""
+    message = update.message
+    user_id = message.from_user.id
+    text = message.text.strip()
     
-    # Track download count
-    if not hasattr(context.application, 'user_downloads'):
-        context.application.user_downloads = {}
+    # Log all messages for debugging
+    LOGGER.info(f"Message from user {user_id}: {text[:50]}...")
     
-    current_downloads = context.application.user_downloads.get(user_id, 0)
-    current_downloads += 1
-    context.application.user_downloads[user_id] = current_downloads
+    # Check if it's a Terabox URL
+    if any(domain in text.lower() for domain in ['terabox.com', '1024tera.com', 'teraboxapp.com', 'nephobox.com', 'mirrobox.com', 'terabox.app']):
+        await handle_terabox_url(update, context)
+    else:
+        await message.reply_text(
+            "🔗 **Send a Terabox link to download**\n\n"
+            "**Supported formats:**\n"
+            "• terabox.com/s/...\n"
+            "• 1024tera.com/s/...\n"
+            "• teraboxapp.com/s/...\n\n"
+            "**Commands:**\n"
+            "• /start - Bot information\n"
+            "• /leech - Standard download\n"
+            "• /fast - Enhanced download",
+            parse_mode='Markdown'
+        )
+
+async def handle_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Terabox URL with verification check"""
+    message = update.message
+    user_id = message.from_user.id
+    terabox_url = message.text.strip()
     
-    LOGGER.info(f"📊 User {user_id} download #{current_downloads}")
-    
-    # Check if verification is required
-    if current_downloads > FREE_DOWNLOAD_LIMIT:
-        LOGGER.info(f"🔐 User {user_id} needs verification (download #{current_downloads})")
+    # Check user verification status
+    if VERIFY:
+        user_downloads = get_user_download_count(user_id)
+        is_verified = check_verification(user_id)
         
-        try:
-            # Try to generate verification link
-            verification_link = None
-            
-            try:
-                from bot.modules.token_verification import generate_verification_link
-                verification_link = await generate_verification_link(user_id)
-            except Exception as e1:
-                LOGGER.error(f"❌ Primary verification failed: {e1}")
-                try:
-                    from bot.modules.token_verification import create_verification_link
-                    verification_link = create_verification_link(user_id)
-                except Exception as e2:
-                    LOGGER.error(f"❌ Secondary verification failed: {e2}")
-            
-            if verification_link:
-                keyboard = [
-                    [InlineKeyboardButton("🔐 Complete Verification", url=verification_link)],
-                    [InlineKeyboardButton("ℹ️ Why Verification?", callback_data="why_verify")]
-                ]
-            else:
-                keyboard = [
-                    [InlineKeyboardButton("🔐 Start Verification", callback_data=f"start_verification_{user_id}")],
-                    [InlineKeyboardButton("ℹ️ Why Verification?", callback_data="why_verify")]
-                ]
-            
+        if user_downloads >= FREE_DOWNLOAD_LIMIT and not is_verified:
+            await send_verification_required_message(message, user_id, user_downloads)
+            return
+    
+    # Process the Terabox URL
+    try:
+        from bot.handlers.processor import process_terabox_url
+        await process_terabox_url(update, context)
+    except ImportError:
+        await message.reply_text("❌ **Processor module not available**")
+        LOGGER.error("Processor module not found")
+
+async def send_verification_required_message(message, user_id, download_count):
+    """Send VJ-style verification message with validity time info"""
+    try:
+        # Generate verification link
+        verify_link = generate_verification_link(user_id)
+        
+        if verify_link:
+            keyboard = [
+                [InlineKeyboardButton("🔗 Click Here to Verify", url=verify_link)],
+                [InlineKeyboardButton("❓ How to Verify?", url=VERIFY_TUTORIAL)],
+                [InlineKeyboardButton("♻️ Refresh Status", callback_data=f"refresh_verification_{user_id}")]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await update.message.reply_text(
-                "🔐 **Verification Required**\n\n"
-                f"You've reached your download limit ({current_downloads-1}/{FREE_DOWNLOAD_LIMIT} free downloads).\n\n"
-                "**To continue downloading:**\n"
-                "• Click the verification button below\n"
-                "• Complete the quick verification\n"
-                "• Get unlimited downloads!\n\n"
-                "⏱️ **Verification takes only 30 seconds**",
+            await message.reply_text(
+                f"🔐 **Verification Required**\n\n"
+                f"You've used **{download_count}/{FREE_DOWNLOAD_LIMIT}** free downloads.\n\n"
+                f"**To get unlimited downloads:**\n"
+                f"1. Click the verification link below\n"
+                f"2. Complete the shortlink (10-20 seconds)\n"
+                f"3. You'll see 'Your Link is Ready' message\n"
+                f"4. Click the final link to return to bot\n\n"
+                f"✅ **Valid for {VALIDITY_TIME_TEXT}**\n"
+                f"🎯 **VJ Verification System**",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-            return
-            
-        except Exception as e:
-            LOGGER.error(f"❌ Verification system error: {e}")
-            await update.message.reply_text(
-                "❌ **Verification System Error**\n\n"
-                f"Please contact support for assistance.",
+        else:
+            await message.reply_text(
+                "❌ **Verification system temporarily unavailable.**\n"
+                "Please try again in a few minutes.",
                 parse_mode='Markdown'
             )
-            return
-    else:
-        LOGGER.info(f"✅ User {user_id} is within free limit ({current_downloads}/{FREE_DOWNLOAD_LIMIT})")
-    
-    # Process the Terabox URL (call your existing processor)
-    from .processor import process_terabox_url
-    await process_terabox_url(update, terabox_url)
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Enhanced message handler with FIXED verification system"""
-    user_id = update.effective_user.id
-    message_text = update.message.text
-    
-    # Check for button responses
-    if message_text in ["📞 Contact", "/contact"]:
-        from .commands import contact_command
-        await contact_command(update, context)
-        return
-    elif message_text in ["🆘 Help", "/help"]:
-        from .commands import help_command
-        await help_command(update, context)
-        return
-    elif message_text in ["📊 Status", "/status"]:
-        from .commands import status_command
-        await status_command(update, context)
-        return
-    elif message_text in ["ℹ️ About", "/about"]:
-        from .commands import about_command
-        await about_command(update, context)
-        return
-    
-    LOGGER.info(f"📨 Message from {user_id}: {message_text}")
-    print(f"📨 DEBUG: User {user_id} sent: {message_text}")
-
-    # Check if message contains Terabox URL (enhanced detection)
-    is_terabox_url = any(domain in message_text.lower() for domain in TERABOX_DOMAINS)
-
-    if is_terabox_url:
-        print(f"🎯 TERABOX URL DETECTED! Processing: {message_text}")
-        LOGGER.info(f"Terabox URL detected: {message_text}")
-        
-        # Use enhanced verification system
-        await handle_terabox_with_verification(update, message_text, user_id, context)
-    else:
-        # Try verification token handling first
-        try:
-            from bot.modules.token_verification import handle_verification_token_input
-            await handle_verification_token_input(update, context)
-            return
-        except ImportError:
-            pass
-        except Exception as e:
-            LOGGER.error(f"❌ Verification token handling failed: {e}")
-        
-        # Echo for non-Terabox messages
-        await update.message.reply_text(
-            f"📢 **Echo:** {message_text}\n\n🆔 **Your ID:** `{user_id}`\n🤖 **I'm working!**\n\n**Send a Terabox URL to download!**",
+    except Exception as e:
+        LOGGER.error(f"Error sending verification message: {e}")
+        await message.reply_text(
+            "❌ **Error generating verification link**\n"
+            "Please contact support.",
             parse_mode='Markdown'
-                    )
-                    
+        )
+
+async def handle_start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enhanced start command with verification support and validity time"""
+    message = update.message
+    user_id = message.from_user.id
+    
+    # Check if it's a verification start
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+        if arg.startswith('verify_'):
+            token = arg.replace('verify_', '')
+            success, verified_user_id = verify_user_token(token)
+            
+            if success:
+                await message.reply_text(
+                    "✅ **Verification Successful!**\n\n"
+                    "🎉 You now have unlimited downloads!\n"
+                    "📤 Send any Terabox link to start downloading.\n\n"
+                    f"🕐 **Validity:** {VALIDITY_TIME_TEXT}\n"
+                    "🚀 **VJ Verification System - Activated**",
+                    parse_mode='Markdown'
+                )
+                return
+            else:
+                await message.reply_text(
+                    "❌ **Verification Failed**\n\n"
+                    "Token expired or invalid.\n"
+                    f"Tokens are valid for {VALIDITY_TIME_TEXT}.\n"
+                    "Please request a new verification link.",
+                    parse_mode='Markdown'
+                )
+                return
+    
+    # Regular start message with verification info
+    user_downloads = get_user_download_count(user_id)
+    verification_info = get_verification_info(user_id)
+    
+    if verification_info['verified']:
+        status_text = f"✅ **Verified** (Valid for {VALIDITY_TIME_TEXT})"
+    else:
+        status_text = f"📊 **{user_downloads}/{FREE_DOWNLOAD_LIMIT}** downloads used"
+    
+    keyboard = [
+        [InlineKeyboardButton("📖 About", callback_data="about"),
+         InlineKeyboardButton("📊 Status", callback_data="status")],
+        [InlineKeyboardButton("❓ Why Verify?", callback_data="why_verify")]
+    ]
+    
+    if not verification_info['verified'] and user_downloads >= FREE_DOWNLOAD_LIMIT:
+        keyboard.insert(0, [InlineKeyboardButton("🔓 Start Verification", callback_data=f"start_verification_{user_id}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await message.reply_text(
+        f"🚀 **Ultra Terabox Bot with VJ Verification**\n\n"
+        f"👋 **Welcome:** {message.from_user.first_name}\n"
+        f"🔐 **Status:** {status_text}\n\n"
+        f"**📋 How to use:**\n"
+        f"• Send any Terabox link\n"
+        f"• Get instant downloads\n"
+        f"• Use /leech or /fast commands\n\n"
+        f"**🕐 Verification Validity:** {VALIDITY_TIME_TEXT}\n"
+        f"**🎯 VJ Verification System Active**",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    
