@@ -1,6 +1,6 @@
 """
-ENHANCED PROCESSOR.PY - Micro-chunk Download + Enhanced Video Upload
-Keeps all working download code + Adds original video resolution & thumbnails
+ENHANCED PROCESSOR.PY - Streaming Download + Enhanced Video Upload
+Fixed the IncompleteRead error with better streaming approach
 """
 
 import os
@@ -93,7 +93,7 @@ def format_size(bytes_size):
         bytes_size /= 1024
     return f"{bytes_size:.1f} TB"
 
-# ✅ NEW: Enhanced Video Processing Functions
+# ✅ ENHANCED VIDEO PROCESSING FUNCTIONS
 def get_video_info(video_path):
     """Get video information using ffprobe (if available) or basic fallback"""
     try:
@@ -144,70 +144,118 @@ def generate_video_thumbnail(video_path):
     
     return None
 
-# ✅ WORKING DOWNLOAD METHOD - Micro-chunks only (PRESERVED EXACTLY)
-async def download_with_micro_chunks_only(download_url, file_path, filename, status_msg, total_size):
-    """Download with micro-chunks - PROVEN TO WORK"""
+# ✅ NEW STREAMING DOWNLOAD METHOD - FIXED FOR TERABOX
+async def download_with_streaming(download_url, file_path, filename, status_msg, total_size, max_retries=3):
+    """Enhanced streaming download - FIXES IncompleteRead error"""
     
-    try:
-        print(f"🔬 Micro-chunk download for {filename}")
-        
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'curl/7.68.0',
-            'Accept': '*/*'
-        })
-        
-        response = session.get(
-            download_url,
-            stream=True,
-            timeout=(10, 120)
-        )
-        response.raise_for_status()
-        
-        downloaded = 0
-        start_time = time.time()
-        last_update = 0
-        
-        with open(file_path, 'wb') as f:
-            # Use 1KB chunks (working perfectly in your log)
-            for chunk in response.iter_content(chunk_size=1024):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    
-                    # Update every 100KB to avoid rate limits
-                    if downloaded - last_update >= 100 * 1024:
-                        elapsed_time = time.time() - start_time
-                        speed = downloaded / elapsed_time if elapsed_time > 0 else 0
-                        progress = (downloaded / total_size) * 100 if total_size > 0 else 0
-                        
-                        try:
-                            await status_msg.edit_text(
-                                f"🔬 **Micro-chunk Download**\n"
-                                f"📁 **{filename}**\n"
-                                f"⬇️ **Progress:** {progress:.1f}%\n"
-                                f"📊 **{format_size(downloaded)} / {format_size(total_size)}**\n"
-                                f"🚀 **Speed:** {format_size(speed)}/s",
-                                parse_mode='Markdown'
-                            )
-                            last_update = downloaded
-                        except:
-                            pass
-        
-        session.close()
-        print(f"✅ Micro-chunk download successful! Downloaded {downloaded} bytes")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Micro-chunk download failed: {e}")
+    for attempt in range(1, max_retries + 1):
         try:
+            print(f"🌊 Streaming download attempt {attempt}/{max_retries} for {filename}")
+            
+            # Enhanced headers to avoid detection
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'identity',  # Avoid compression issues
+                'Connection': 'keep-alive',
+                'Referer': 'https://www.terabox.com/',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'cross-site'
+            }
+            
+            # Create session with retry strategy
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            print(f"🌊 Starting streaming download: {filename}")
+            
+            # Make request with streaming enabled
+            response = session.get(
+                download_url,
+                stream=True,
+                timeout=(15, 120),  # 15s connect, 120s read
+                allow_redirects=True
+            )
+            response.raise_for_status()
+            
+            downloaded = 0
+            start_time = time.time()
+            last_update = 0
+            
+            with open(file_path, 'wb') as f:
+                # Use 8KB chunks - optimal for most connections
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:  # Filter out keep-alive chunks
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Update progress every 500KB to avoid rate limits
+                        if downloaded - last_update >= 500 * 1024:
+                            elapsed_time = time.time() - start_time
+                            speed = downloaded / elapsed_time if elapsed_time > 0 else 0
+                            progress = (downloaded / total_size) * 100 if total_size > 0 else 0
+                            
+                            try:
+                                await status_msg.edit_text(
+                                    f"🌊 **Streaming Download**\n"
+                                    f"📁 **{filename}**\n"
+                                    f"⬇️ **Progress:** {progress:.1f}%\n"
+                                    f"📊 **{format_size(downloaded)} / {format_size(total_size)}**\n"
+                                    f"🚀 **Speed:** {format_size(speed)}/s\n"
+                                    f"🔄 **Attempt:** {attempt}/{max_retries}",
+                                    parse_mode='Markdown'
+                                )
+                                last_update = downloaded
+                            except:
+                                pass
+                        
+                        # Progress logging
+                        if downloaded % (5 * 1024 * 1024) == 0:  # Every 5MB
+                            print(f"✅ Downloaded: {format_size(downloaded)}")
+            
             session.close()
-        except:
-            pass
-        raise e
+            print(f"✅ Streaming download attempt {attempt} successful! Downloaded {downloaded} bytes")
+            return True
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Streaming download attempt {attempt} failed: {error_msg}")
+            
+            try:
+                session.close()
+            except:
+                pass
+                
+            # Clean up partial file
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+            except:
+                pass
+            
+            if attempt < max_retries:
+                wait_time = attempt * 3  # 3s, 6s, 9s
+                print(f"⏳ Waiting {wait_time}s before retry...")
+                
+                try:
+                    await status_msg.edit_text(
+                        f"⚠️ **Download failed (Attempt {attempt})**\n\n"
+                        f"**Error:** {error_msg[:50]}...\n"
+                        f"🔄 **Retrying in {wait_time}s...**\n"
+                        f"📊 **Next attempt:** {attempt + 1}/{max_retries}",
+                        parse_mode='Markdown'
+                    )
+                except:
+                    pass
+                
+                await asyncio.sleep(wait_time)
+            else:
+                raise Exception(f"All download attempts failed after {max_retries} tries: {error_msg}")
 
 async def process_terabox_url(update: Update, url: str):
-    """Process Terabox URL with micro-chunk download + enhanced video upload"""
+    """Process Terabox URL with enhanced streaming download + video upload"""
     print(f"🎯 Starting enhanced Terabox processing: {url}")
     LOGGER.info(f"Starting enhanced Terabox processing: {url}")
     
@@ -237,16 +285,16 @@ async def process_terabox_url(update: Update, url: str):
             return
 
         await status_msg.edit_text(
-            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n🔬 **Micro-chunk download...**",
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n🌊 **Streaming download...**",
             parse_mode='Markdown'
         )
 
-        # Step 3: WORKING DOWNLOAD METHOD (PRESERVED EXACTLY)
-        print(f"🔬 Step 3: Micro-chunk download...")
+        # Step 3: ENHANCED STREAMING DOWNLOAD
+        print(f"🌊 Step 3: Enhanced streaming download...")
         file_path = Path(DOWNLOAD_DIR) / filename
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         
-        await download_with_micro_chunks_only(download_url, file_path, filename, status_msg, file_size)
+        await download_with_streaming(download_url, file_path, filename, status_msg, file_size)
         print(f"✅ Step 3 complete: File downloaded successfully")
 
         # Step 4: ENHANCED UPLOAD TO TELEGRAM
@@ -254,7 +302,7 @@ async def process_terabox_url(update: Update, url: str):
         await status_msg.edit_text("📤 **Enhanced uploading to Telegram...**", parse_mode='Markdown')
 
         try:
-            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🔬 Micro-chunk success"
+            caption = f"🎥 {filename}\n📊 Size: {format_size(file_size)}\n🌊 Streaming download success"
             
             with open(file_path, 'rb') as file:
                 if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.webm', '.m4v', '.3gp', '.ts')):
@@ -333,7 +381,7 @@ async def process_terabox_url(update: Update, url: str):
             pass
 
         print(f"🎉 Process complete: {filename} successfully processed with enhancements!")
-        LOGGER.info(f"Successfully processed: {filename} with enhanced upload")
+        LOGGER.info(f"Successfully processed: {filename} with enhanced streaming download")
 
     except Exception as e:
         error_msg = str(e)
