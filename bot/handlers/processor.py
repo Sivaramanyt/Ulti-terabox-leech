@@ -1,254 +1,296 @@
 """
-Ultra Terabox Processor v2.0 - Compact Version
+Ultra Terabox Processor - Based on WORKING wdzone-terabox-api
+Enhanced with filename cleaning + better error handling
 """
 
-import aiohttp
-import asyncio
 import os
-import logging
-import re
-import json
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import requests
+import aiohttp
+import aiofiles
+from pathlib import Path
+from urllib.parse import quote
+from telegram import Update
 from telegram.ext import ContextTypes
-from config import *
+from config import LOGGER, DOWNLOAD_DIR, FREE_DOWNLOAD_LIMIT
+import re
 
-LOGGER = logging.getLogger(__name__)
-
-TIMEOUT_CONFIG = aiohttp.ClientTimeout(total=300, connect=30, sock_read=60)
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Connection': 'keep-alive'
-}
-
-async def process_terabox_url(update, context: ContextTypes.DEFAULT_TYPE):
-    """Main Terabox processor"""
-    message = update.message
-    user_id = message.from_user.id
-    terabox_url = message.text.strip()
-    
-    # Check user limits
-    user_downloads = get_user_download_count(user_id)
-    if user_downloads >= FREE_DOWNLOAD_LIMIT and not is_user_verified(user_id):
-        await send_verification_required_message(message, user_id, user_downloads)
-        return
-    
-    # Processing message
-    status_msg = await message.reply_text("🔄 **Processing Terabox link...**", parse_mode='Markdown')
-    
-    try:
-        # Extract file info
-        file_info = await extract_terabox_info(terabox_url)
-        if not file_info:
-            await status_msg.edit_text("❌ **Failed to extract file info**\nTry with a valid Terabox link.")
-            return
-        
-        filename = file_info.get('filename', 'terabox_file.mp4')
-        file_size = file_info.get('size', 0)
-        download_url = file_info.get('download_url', terabox_url)
-        
-        await status_msg.edit_text(f"⬇️ **Downloading:** `{filename}`\n📊 **Size:** {format_file_size(file_size)}")
-        
-        # Download file
-        file_path = await download_file(download_url, filename, status_msg)
-        if not file_path:
-            await status_msg.edit_text("❌ **Download failed**\nTry again later.")
-            return
-        
-        await status_msg.edit_text(f"⬆️ **Uploading:** `{filename}`")
-        
-        # Upload to Telegram
-        await upload_file_to_telegram(message, file_path, filename, status_msg)
-        
-        # Cleanup
-        increment_user_downloads(user_id)
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        
-        LOGGER.info(f"✅ Process complete: {filename}")
-        
-    except Exception as e:
-        LOGGER.error(f"❌ Error: {str(e)}")
-        await status_msg.edit_text(f"❌ **Error:** {str(e)}")
-
-async def extract_terabox_info(terabox_url):
-    """Extract file info from Terabox"""
-    for attempt in range(3):
+def speed_string_to_bytes(size_str):
+    """Convert size string to bytes"""
+    size_str = size_str.replace(" ", "").upper()
+    if "KB" in size_str:
+        return float(size_str.replace("KB", "")) * 1024
+    elif "MB" in size_str:
+        return float(size_str.replace("MB", "")) * 1024 * 1024
+    elif "GB" in size_str:
+        return float(size_str.replace("GB", "")) * 1024 * 1024 * 1024
+    elif "TB" in size_str:
+        return float(size_str.replace("TB", "")) * 1024 * 1024 * 1024 * 1024
+    else:
         try:
-            async with aiohttp.ClientSession(timeout=TIMEOUT_CONFIG, headers=HEADERS) as session:
-                async with session.get(terabox_url, allow_redirects=True) as response:
-                    if response.status == 200:
-                        content = await response.text()
-                        return parse_terabox_response(content, terabox_url)
-        except Exception as e:
-            LOGGER.warning(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt < 2:
-                await asyncio.sleep(2)
-    return None
+            return float(size_str.replace("B", ""))
+        except:
+            return 0
 
-def parse_terabox_response(content, original_url):
-    """Parse Terabox HTML"""
+def clean_filename(filename):
+    """Clean filename from Terabox titles and invalid characters"""
     try:
-        # Try JSON extraction
-        json_patterns = [
-            r'window\.yunData\s*=\s*({.+?});',
-            r'window\.viewShareData\s*=\s*({.+?});',
-            r'setData\(({.+?})\)',
-        ]
-        
-        for pattern in json_patterns:
-            matches = re.findall(pattern, content, re.DOTALL)
-            for match in matches:
-                try:
-                    data = json.loads(match)
-                    file_info = extract_from_json(data)
-                    if file_info:
-                        return file_info
-                except:
-                    continue
-        
-        # HTML extraction
-        html_patterns = {
-            'filename': [r'<title>([^<]+)</title>', r'data-title="([^"]+)"'],
-            'size': [r'data-size="([^"]+)"', r'size["\']?\s*:\s*["\']?(\d+)'],
-        }
-        
-        extracted = {}
-        for key, patterns in html_patterns.items():
-            for pattern in patterns:
-                match = re.search(pattern, content, re.IGNORECASE)
-                if match:
-                    extracted[key] = match.group(1)
-                    break
-        
-        filename = clean_filename(extracted.get('filename', 'terabox_file'))
-        size = int(extracted.get('size', 0)) if extracted.get('size') else 0
-        
-        return {
-            'filename': filename,
-            'size': size,
-            'download_url': original_url
-        }
-        
-    except Exception as e:
-        LOGGER.error(f"Parse error: {str(e)}")
-        return None
-
-def extract_from_json(data):
-    """Extract from JSON data"""
-    try:
-        if isinstance(data, dict):
-            file_list = data.get('file_list', [])
-            if file_list and len(file_list) > 0:
-                item = file_list[0]
-                return {
-                    'filename': clean_filename(item.get('server_filename', 'terabox_file')),
-                    'size': int(item.get('size', 0)),
-                    'download_url': item.get('dlink', '').replace('\\/', '/')
-                }
-            
-            filename = data.get('filename') or data.get('server_filename')
-            if filename:
-                return {
-                    'filename': clean_filename(filename),
-                    'size': int(data.get('size', 0)),
-                    'download_url': data.get('dlink', '').replace('\\/', '/')
-                }
-    except:
-        pass
-    return None
-
-def clean_filename(raw_filename):
-    """Clean filename"""
-    try:
-        # Remove Terabox suffixes
+        # Remove common Terabox page suffixes
         patterns = [
             r'\s*-\s*Share Files Online.*',
             r'\s*-\s*TeraBox.*',
-            r'\s*&amp;.*'
+            r'\s*&amp;.*',
+            r'\s*\|\s*TeraBox.*'
         ]
         
-        cleaned = raw_filename
+        cleaned = filename
         for pattern in patterns:
             cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
         
-        # Clean up
+        # Remove HTML entities
         cleaned = cleaned.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+        
+        # Remove invalid filename characters
         cleaned = re.sub(r'[<>:"/\\|?*]', '', cleaned).strip()
         
+        # Ensure reasonable length
+        if len(cleaned) > 100:
+            parts = cleaned.rsplit('.', 1)
+            if len(parts) == 2:
+                cleaned = parts[0][:90] + '.' + parts[1]
+            else:
+                cleaned = cleaned[:100]
+        
         # Add extension if missing
-        extensions = ['.mp4', '.avi', '.mkv', '.jpg', '.png', '.pdf', '.zip']
+        extensions = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.jpg', '.png', '.pdf', '.zip']
         if not any(cleaned.lower().endswith(ext) for ext in extensions):
-            cleaned += '.mp4'
+            if any(word in cleaned.lower() for word in ['video', 'movie', 'mp4', 'vid']):
+                cleaned += '.mp4'
+            else:
+                cleaned += '.mp4'  # Default
         
         return cleaned if cleaned else 'terabox_file.mp4'
     except:
         return 'terabox_file.mp4'
 
-async def download_file(download_url, filename, status_msg=None):
-    """Download file"""
-    if not download_url:
-        return None
-    
-    file_path = os.path.join(DOWNLOAD_DIR, filename)
-    
-    for attempt in range(3):
-        try:
-            async with aiohttp.ClientSession(timeout=TIMEOUT_CONFIG, headers=HEADERS) as session:
-                async with session.get(download_url, allow_redirects=True) as response:
-                    if response.status == 200:
-                        with open(file_path, 'wb') as file:
-                            async for chunk in response.content.iter_chunked(8192):
-                                if chunk:
-                                    file.write(chunk)
-                        return file_path
-        except Exception as e:
-            LOGGER.warning(f"Download attempt {attempt + 1} failed: {str(e)}")
-            if attempt < 2:
-                await asyncio.sleep(3)
-    
-    return None
-
-async def upload_file_to_telegram(message, file_path, filename, status_msg):
-    """Upload to Telegram"""
+def extract_terabox_info(url):
+    """Extract file info using wdzone-terabox-api - PROVEN WORKING"""
     try:
-        file_size = os.path.getsize(file_path)
-        file_ext = filename.lower().split('.')[-1]
+        print(f"🔍 Processing URL: {url}")
+        LOGGER.info(f"Processing URL: {url}")
         
-        caption = f"📁 **{filename}**\n📊 **Size:** {format_file_size(file_size)}\n✅ **Downloaded from Terabox**"
+        apiurl = f"https://wdzone-terabox-api.vercel.app/api?url={quote(url)}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0'
+        }
         
-        if file_ext in ['mp4', 'avi', 'mkv', 'mov']:
-            with open(file_path, 'rb') as video:
-                await message.reply_video(video=video, caption=caption, parse_mode='Markdown')
-        elif file_ext in ['jpg', 'jpeg', 'png', 'gif']:
-            with open(file_path, 'rb') as photo:
-                await message.reply_photo(photo=photo, caption=caption, parse_mode='Markdown')
+        print(f"🌐 API URL: {apiurl}")
+        LOGGER.info(f"Making API request to: {apiurl}")
+        
+        response = requests.get(apiurl, headers=headers, timeout=30)
+        if response.status_code != 200:
+            raise Exception(f"API request failed with status: {response.status_code}")
+        
+        req = response.json()
+        print(f"📄 API Response: {req}")
+        LOGGER.info(f"API response: {req}")
+        
+        extracted_info = None
+        if "✅ Status" in req and req["✅ Status"] == "Success":
+            extracted_info = req.get("📜 Extracted Info", [])
+        elif "Status" in req and req["Status"] == "Success":
+            extracted_info = req.get("Extracted Info", [])
         else:
-            with open(file_path, 'rb') as doc:
-                await message.reply_document(document=doc, caption=caption, parse_mode='Markdown')
+            if "❌ Status" in req:
+                error_msg = req.get("📜 Message", "Unknown error")
+                raise Exception(f"API Error: {error_msg}")
+            else:
+                raise Exception("Invalid API response format")
         
+        if not extracted_info:
+            raise Exception("No files found")
+        
+        data = extracted_info[0]
+        raw_filename = data.get("📂 Title") or data.get("Title", "Unknown")
+        size_str = data.get("📏 Size") or data.get("Size", "0 B")
+        download_url = data.get("🔽 Direct Download Link") or data.get("Direct Download Link", "")
+        
+        # ENHANCED: Clean the filename
+        filename = clean_filename(raw_filename)
+        
+        result = {
+            'filename': filename,
+            'size': speed_string_to_bytes(size_str.replace(" ", "")),
+            'download_url': download_url,
+            'type': 'file'
+        }
+        
+        print(f"✅ File info extracted: {result}")
+        LOGGER.info(f"File extracted: {result}")
+        return result
+        
+    except Exception as e:
+        print(f"❌ Terabox extraction error: {e}")
+        LOGGER.error(f"Terabox extraction error: {e}")
+        raise Exception(f"Failed to process Terabox link: {str(e)}")
+
+def format_size(bytes_size):
+    """Format file size"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_size < 1024:
+            return f"{bytes_size:.1f} {unit}"
+        bytes_size /= 1024
+    return f"{bytes_size:.1f} TB"
+
+async def process_terabox_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process Terabox URL - ENHANCED WORKING VERSION"""
+    message = update.message
+    user_id = message.from_user.id
+    url = message.text.strip()
+    
+    print(f"🎯 Starting Terabox processing: {url}")
+    LOGGER.info(f"Starting Terabox processing: {url}")
+    
+    # Check user limits (placeholder - implement as needed)
+    user_downloads = get_user_download_count(user_id)
+    if user_downloads >= FREE_DOWNLOAD_LIMIT and not is_user_verified(user_id):
+        await send_verification_required_message(message, user_id, user_downloads)
+        return
+    
+    status_msg = await message.reply_text("🔍 **Processing Terabox URL...**", parse_mode='Markdown')
+    
+    try:
+        # Step 1: Extract file info using WORKING API
+        print(f"📋 Step 1: Using wdzone-terabox-api...")
+        await status_msg.edit_text("📋 **Using wdzone-terabox-api...**", parse_mode='Markdown')
+        
+        file_info = extract_terabox_info(url)
+        filename = file_info['filename']
+        file_size = file_info['size']
+        download_url = file_info['download_url']
+        
+        print(f"✅ Step 1 complete: {filename}, {file_size} bytes")
+        
+        if not download_url:
+            await status_msg.edit_text("❌ **No download URL found**", parse_mode='Markdown')
+            return
+        
+        # Step 2: Size check
+        if file_size > 2 * 1024 * 1024 * 1024:  # 2GB limit
+            await status_msg.edit_text(
+                f"❌ **File too large!**\n\n📊 **Size:** {format_size(file_size)}\n\n**Max allowed:** 2GB for free tier",
+                parse_mode='Markdown'
+            )
+            return
+        
+        await status_msg.edit_text(
+            f"📁 **File Found**\n📊 **{format_size(file_size)}**\n✅ **API Success**\n⬇️ **Downloading...**",
+            parse_mode='Markdown'
+        )
+        
+        # Step 3: Download file
+        print(f"⬇️ Step 3: Downloading file...")
+        file_path = Path(DOWNLOAD_DIR) / filename
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as response:
+                if response.status != 200:
+                    await status_msg.edit_text(
+                        f"❌ **Download failed**\n\n**HTTP Status:** {response.status}",
+                        parse_mode='Markdown'
+                    )
+                    return
+                
+                total_size = int(response.headers.get('content-length', file_size))
+                downloaded = 0
+                
+                print(f"📥 Downloading {filename}, size: {total_size}")
+                
+                async with aiofiles.open(file_path, 'wb') as f:
+                    async for chunk in response.content.iter_chunked(8192):  # 8KB chunks
+                        await f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Update progress every 1MB
+                        if downloaded % (1024 * 1024) == 0:
+                            progress = (downloaded / total_size) * 100 if total_size > 0 else 0
+                            try:
+                                await status_msg.edit_text(
+                                    f"📁 **Downloading**\n⬇️ **Progress:** {progress:.1f}%\n📊 **{format_size(downloaded)} / {format_size(total_size)}**",
+                                    parse_mode='Markdown'
+                                )
+                            except:
+                                pass  # Ignore rate limits
+        
+        print(f"✅ Step 3 complete: File downloaded")
+        
+        # Step 4: Upload to Telegram - ENHANCED WITH BETTER MEDIA HANDLING
+        print(f"📤 Step 4: Uploading to Telegram...")
+        await status_msg.edit_text("📤 **Uploading to Telegram...**", parse_mode='Markdown')
+        
+        try:
+            caption = f"📁 **{filename}**\n📊 **Size:** {format_size(file_size)}\n🔗 **Source:** Terabox\n✅ **Enhanced processor with clean filename**"
+            
+            with open(file_path, 'rb') as file:
+                if filename.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.wmv', '.webm', '.m4v', '.3gp')):
+                    # ENHANCED VIDEO UPLOAD
+                    await message.reply_video(
+                        video=file,
+                        caption=caption,
+                        width=640,
+                        height=480,
+                        duration=0,
+                        supports_streaming=True,
+                        parse_mode='Markdown'
+                    )
+                elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp')):
+                    # ENHANCED IMAGE UPLOAD
+                    await message.reply_photo(
+                        photo=file,
+                        caption=caption,
+                        parse_mode='Markdown'
+                    )
+                else:
+                    # ENHANCED DOCUMENT UPLOAD
+                    await message.reply_document(
+                        document=file,
+                        caption=caption,
+                        parse_mode='Markdown'
+                    )
+        
+        except Exception as upload_error:
+            print(f"❌ Upload error: {upload_error}")
+            await status_msg.edit_text(f"❌ **Upload failed:** {str(upload_error)}", parse_mode='Markdown')
+            return
+        
+        print(f"✅ Step 4 complete: File uploaded successfully")
+        
+        # Step 5: Cleanup
+        try:
+            file_path.unlink(missing_ok=True)
+            print(f"🧹 Cleanup: File deleted")
+        except:
+            pass
+        
+        # Update user stats
+        increment_user_downloads(user_id)
+        
+        # Delete status message
         try:
             await status_msg.delete()
         except:
             pass
-            
+        
+        print(f"🎉 Process complete: {filename} successfully processed!")
+        LOGGER.info(f"Successfully processed: {filename}")
+        
     except Exception as e:
-        LOGGER.error(f"Upload error: {str(e)}")
-        await status_msg.edit_text(f"❌ **Upload failed:** {str(e)}")
+        error_msg = str(e)
+        print(f"❌ Process error: {error_msg}")
+        LOGGER.error(f"Process error: {error_msg}")
+        await status_msg.edit_text(f"❌ **Error:** {error_msg}", parse_mode='Markdown')
 
-def format_file_size(size_bytes):
-    """Format file size"""
-    if size_bytes == 0:
-        return "Unknown"
-    
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
-
-# Database functions (implement as needed)
+# Database helper functions (implement as needed)
 def get_user_download_count(user_id):
     return 0
 
@@ -259,6 +301,8 @@ def increment_user_downloads(user_id):
     pass
 
 async def send_verification_required_message(message, user_id, download_count):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    
     keyboard = [
         [InlineKeyboardButton("🔓 Start Verification", callback_data="start_verification")],
         [InlineKeyboardButton("📊 My Status", callback_data="status")]
