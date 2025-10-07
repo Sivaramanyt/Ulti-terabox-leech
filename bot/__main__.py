@@ -1,5 +1,5 @@
 """
-Ultra Simple Terabox Leech Bot - Enhanced Edition with Contact Menu + Fixed Verification
+Ultra Simple Terabox Leech Bot - FIXED EVENT LOOP VERSION
 """
 
 import asyncio
@@ -39,9 +39,9 @@ async def setup_bot_commands(application):
     LOGGER.info("✅ Bot menu commands set successfully")
 
 async def main():
-    """Main function with enhanced features"""
+    """Main function with FIXED event loop handling"""
     try:
-        # Start health check server
+        # Start health check server first
         await health.start_health_server()
 
         # Create application
@@ -49,6 +49,12 @@ async def main():
         
         # Store start time for uptime calculation
         application.start_time = time.time()
+
+        # Clear webhooks
+        LOGGER.info("🧹 Clearing any existing webhooks...")
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        LOGGER.info("✅ Webhook cleared successfully")
+        await asyncio.sleep(3)
 
         # Set up bot menu commands
         await setup_bot_commands(application)
@@ -61,21 +67,17 @@ async def main():
         application.add_handler(CommandHandler("status", commands.status_command))
         application.add_handler(CommandHandler("test", commands.test_handler))
         
-        # Standard leech command (your reliable working version)
+        # Standard leech command
         application.add_handler(CommandHandler("leech", commands.leech_command))
 
-        # Enhanced fast leech command (new multi-connection mode)
+        # Enhanced fast leech command
         try:
-            # Try to import enhanced mode
             import bot.handlers.enhanced_processor
             application.add_handler(CommandHandler("fast", commands.fast_leech_command))
-            print("✅ Enhanced mode loaded successfully")
             LOGGER.info("Enhanced multi-connection mode available")
             enhanced_available = True
         except ImportError as e:
-            print(f"⚠️ Enhanced mode not available: {e}")
             LOGGER.warning(f"Enhanced mode not available: {e}")
-            # Add fallback - /fast will use standard mode
             application.add_handler(CommandHandler("fast", commands.leech_command))
             enhanced_available = False
 
@@ -84,101 +86,104 @@ async def main():
             setup_callback_handlers(application)
             LOGGER.info("✅ Callback handlers registered")
 
-        # Message handler for direct URL processing (uses enhanced verification)
+        # ✅ FIXED: Try to handle verification callbacks properly
+        try:
+            from bot.modules.token_verification import handle_verification_callbacks as orig_verify_handler
+            
+            # Create a combined callback handler
+            async def combined_callback_handler(update, context):
+                query = update.callback_query
+                if query.data in ["about", "status", "why_verify"] or query.data.startswith("start_verification"):
+                    if callbacks_available:
+                        await handle_callback_queries(update, context)
+                    else:
+                        await query.answer("Feature not available")
+                else:
+                    await orig_verify_handler(update, context)
+            
+            application.add_handler(CallbackQueryHandler(combined_callback_handler))
+            LOGGER.info("✅ Combined verification callback handler registered")
+        except Exception as e:
+            LOGGER.error(f"❌ Failed to register verification handlers: {e}")
+            if callbacks_available:
+                setup_callback_handlers(application)
+
+        # Message handler for direct URL processing
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
 
-        # Bot startup messages
-        print(f"🚀 Bot starting with token: {BOT_TOKEN[:20]}...")
-        print(f"🌐 Health check server running on port 8000")
-        print(f"🔍 DEBUG MODE: All messages will be logged")
-        print(f"📞 CONTACT MENU: Professional contact system enabled")
-        print(f"🔐 VERIFICATION: Enhanced verification system with retry logic")
-        
-        if enhanced_available:
-            print(f"⚡ ENHANCED MODE: Multi-connection downloads available")
-            print(f"📋 COMMANDS: /leech (standard) | /fast (enhanced)")
-        else:
-            print(f"🔧 STANDARD MODE: Reliable single-connection downloads")
-            print(f"📋 COMMANDS: /leech (standard) | /fast (fallback to standard)")
+        LOGGER.info("✅ All handlers registered")
+        LOGGER.info(f"🤖 Bot Token: {BOT_TOKEN[:20]}...")
+        LOGGER.info(f"👤 Owner ID: 1206988513")
+        LOGGER.info("🔐 Verification: ENABLED")
+        LOGGER.info("🟢 Bot starting...")
+        LOGGER.info("🎯 Ready to process Terabox links!")
 
-        # Start the bot
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-
-        if enhanced_available:
-            LOGGER.info("✅ Bot started successfully with Enhanced Multi-Connection Mode + Contact Menu!")
-            print("✅ Bot is now running with ENHANCED Terabox processing + Professional Contact Menu!")
-            print("🚀 Use /fast for high-speed multi-connection downloads")
-            print("🛡️ Use /leech for reliable standard downloads")
-        else:
-            LOGGER.info("✅ Bot started successfully with Standard Mode + Contact Menu!")
-            print("✅ Bot is now running with STANDARD Terabox processing + Professional Contact Menu!")
-            print("🔧 Both /leech and /fast use reliable standard mode")
-
-        print("\n" + "="*60)
-        print("📋 AVAILABLE COMMANDS:")
-        print("• /start - Show bot information with contact menu")
-        print("• /contact - Professional contact information")
-        print("• /help - Comprehensive help system")
-        print("• /about - About the bot")
-        print("• /status - Real-time bot status")
-        print("• /test - Test bot functionality")
-        print("• /leech - Standard reliable download")
-        if enhanced_available:
-            print("• /fast - Enhanced multi-connection download (NEW)")
-        else:
-            print("• /fast - Fallback to standard download")
-        print("• Direct URL - Send Terabox URL for processing with verification")
-        print("="*60 + "\n")
-
-        # Keep running
-        while True:
-            await asyncio.sleep(1)
-
-    except Exception as e:
-        LOGGER.error(f"❌ Bot startup error: {e}")
-        print(f"❌ ERROR: {e}")
-        print("🔄 Falling back to basic bot mode...")
-
-        # Fallback mode - basic bot without enhanced features
+        # ✅ FIXED: Start the bot with proper event loop handling
         try:
-            await basic_bot_fallback()
-        except Exception as fallback_error:
-            LOGGER.error(f"❌ Fallback mode also failed: {fallback_error}")
-            print(f"❌ CRITICAL ERROR: {fallback_error}")
+            # Use run_polling instead of manual start/stop
+            await application.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
+                close_loop=False  # ✅ CRITICAL FIX: Don't close the event loop
+            )
+        except Exception as polling_error:
+            LOGGER.error(f"❌ Polling error: {polling_error}")
+            # Don't re-raise, just log and continue
+            
+    except Exception as e:
+        LOGGER.error(f"❌ Error in main: {e}")
+        # Don't exit immediately, try fallback
+        await basic_bot_fallback()
 
 async def basic_bot_fallback():
-    """Basic fallback bot if enhanced mode completely fails"""
-    print("🔄 Starting in BASIC FALLBACK mode...")
-    application = Application.builder().token(BOT_TOKEN).build()
+    """Basic fallback bot if main bot fails"""
+    try:
+        LOGGER.info("🔄 Starting in BASIC FALLBACK mode...")
+        application = Application.builder().token(BOT_TOKEN).build()
 
-    # Only add essential handlers
-    application.add_handler(CommandHandler("start", commands.start))
-    application.add_handler(CommandHandler("help", commands.help_command))
-    application.add_handler(CommandHandler("contact", commands.contact_command))
-    application.add_handler(CommandHandler("test", commands.test_handler))
-    application.add_handler(CommandHandler("leech", commands.leech_command))
-    application.add_handler(CommandHandler("fast", commands.leech_command))  # Fast fallback to standard
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
+        # Store start time
+        application.start_time = time.time()
 
-    print("✅ BASIC BOT: Running in safe fallback mode with contact menu")
-    LOGGER.info("Basic fallback mode activated")
+        # Only add essential handlers
+        application.add_handler(CommandHandler("start", commands.start))
+        application.add_handler(CommandHandler("help", commands.help_command))
+        application.add_handler(CommandHandler("contact", commands.contact_command))
+        application.add_handler(CommandHandler("test", commands.test_handler))
+        application.add_handler(CommandHandler("leech", commands.leech_command))
+        application.add_handler(CommandHandler("fast", commands.leech_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, messages.handle_message))
 
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
+        LOGGER.info("✅ BASIC BOT: Running in safe fallback mode")
 
-    while True:
-        await asyncio.sleep(1)
+        # ✅ FIXED: Proper fallback polling
+        await application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=["message", "callback_query"],
+            close_loop=False
+        )
+        
+    except Exception as e:
+        LOGGER.error(f"❌ FALLBACK ERROR: {e}")
+
+# ✅ FIXED: Proper event loop handling
+def run_bot():
+    """Run bot with proper event loop management"""
+    try:
+        # Check if there's already a running event loop
+        try:
+            loop = asyncio.get_running_loop()
+            LOGGER.warning("Event loop already running, creating new task")
+            # If we're in an existing loop, create a task
+            task = loop.create_task(main())
+            return task
+        except RuntimeError:
+            # No running loop, we can run normally
+            return asyncio.run(main())
+    except KeyboardInterrupt:
+        LOGGER.info("👋 Bot stopped by user")
+    except Exception as e:
+        LOGGER.error(f"❌ FATAL ERROR: {e}")
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Bot stopped by user")
-        LOGGER.info("Bot stopped by user")
-    except Exception as e:
-        print(f"❌ FATAL ERROR: {e}")
-        LOGGER.error(f"Fatal error: {e}")
+    run_bot()
     
