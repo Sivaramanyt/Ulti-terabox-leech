@@ -15,7 +15,7 @@ from config import *
 LOGGER = logging.getLogger(__name__)
 
 # ✅ AROLINKS API CONFIGURATION
-AROLINKS_API_KEY = os.getenv('AROLINKS_API_KEY', 'your_api_key_here')
+AROLINKS_API_KEY = os.getenv('SHORTLINK_API', 'your_api_key_here')
 AROLINKS_API_URL = "https://arolinks.com/api/v1/shorten"
 BOT_USERNAME = os.getenv('BOT_USERNAME', 'your_bot_username')
 
